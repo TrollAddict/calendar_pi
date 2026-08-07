@@ -1,0 +1,123 @@
+#include "font.h"
+#include <stdlib.h>
+#include <string.h>
+
+/* 37 glyphs: space, '0'-'9', 'A'-'Z'. Each glyph is 7 rows of 5 bits,
+ * bit 4 = leftmost pixel, bit 0 = rightmost pixel. */
+#define FONT_NUM_GLYPHS 37
+#define FONT_COLS 8
+#define FONT_CELL 8 /* atlas cell size in pixels (5x7 glyph + padding) */
+#define FONT_ROWS ((FONT_NUM_GLYPHS + FONT_COLS - 1) / FONT_COLS)
+
+static const unsigned char GLYPHS[FONT_NUM_GLYPHS][FONT_GLYPH_H] = {
+    /* ' ' */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+    /* '0' */ {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E},
+    /* '1' */ {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E},
+    /* '2' */ {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
+    /* '3' */ {0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E},
+    /* '4' */ {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02},
+    /* '5' */ {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E},
+    /* '6' */ {0x06, 0x08, 0x10, 0x1E, 0x11, 0x11, 0x0E},
+    /* '7' */ {0x1F, 0x01, 0x02, 0x04, 0x04, 0x04, 0x04},
+    /* '8' */ {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E},
+    /* '9' */ {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C},
+    /* 'A' */ {0x04, 0x0A, 0x11, 0x11, 0x1F, 0x11, 0x11},
+    /* 'B' */ {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E},
+    /* 'C' */ {0x0F, 0x10, 0x10, 0x10, 0x10, 0x10, 0x0F},
+    /* 'D' */ {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E},
+    /* 'E' */ {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F},
+    /* 'F' */ {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10},
+    /* 'G' */ {0x0F, 0x10, 0x10, 0x17, 0x11, 0x11, 0x0F},
+    /* 'H' */ {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11},
+    /* 'I' */ {0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E},
+    /* 'J' */ {0x07, 0x02, 0x02, 0x02, 0x02, 0x12, 0x0C},
+    /* 'K' */ {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11},
+    /* 'L' */ {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F},
+    /* 'M' */ {0x11, 0x1B, 0x15, 0x11, 0x11, 0x11, 0x11},
+    /* 'N' */ {0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11},
+    /* 'O' */ {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
+    /* 'P' */ {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10},
+    /* 'Q' */ {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D},
+    /* 'R' */ {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11},
+    /* 'S' */ {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E},
+    /* 'T' */ {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04},
+    /* 'U' */ {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E},
+    /* 'V' */ {0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04},
+    /* 'W' */ {0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11},
+    /* 'X' */ {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11},
+    /* 'Y' */ {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04},
+    /* 'Z' */ {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F},
+};
+
+static int char_to_index(char c) {
+    if (c == ' ') return 0;
+    if (c >= '0' && c <= '9') return 1 + (c - '0');
+    if (c >= 'A' && c <= 'Z') return 11 + (c - 'A');
+    if (c >= 'a' && c <= 'z') return 11 + (c - 'a');
+    return -1;
+}
+
+int font_init(font_t *font) {
+    int tex_w = FONT_COLS * FONT_CELL;
+    int tex_h = FONT_ROWS * FONT_CELL;
+    unsigned char *pixels = calloc((size_t)tex_w * (size_t)tex_h * 4, 1);
+    if (!pixels) return -1;
+
+    for (int g = 0; g < FONT_NUM_GLYPHS; g++) {
+        int cell_x = (g % FONT_COLS) * FONT_CELL;
+        int cell_y = (g / FONT_COLS) * FONT_CELL;
+        for (int row = 0; row < FONT_GLYPH_H; row++) {
+            unsigned char bits = GLYPHS[g][row];
+            for (int col = 0; col < FONT_GLYPH_W; col++) {
+                int on = (bits >> (FONT_GLYPH_W - 1 - col)) & 1;
+                int px = cell_x + col;
+                int py = cell_y + row;
+                unsigned char *p = &pixels[((size_t)py * tex_w + px) * 4];
+                p[0] = 255;
+                p[1] = 255;
+                p[2] = 255;
+                p[3] = on ? 255 : 0;
+            }
+        }
+    }
+
+    glGenTextures(1, &font->texture);
+    glBindTexture(GL_TEXTURE_2D, font->texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tex_w, tex_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    free(pixels);
+
+    font->tex_width = tex_w;
+    font->tex_height = tex_h;
+    return 0;
+}
+
+void font_destroy(font_t *font) {
+    glDeleteTextures(1, &font->texture);
+}
+
+int font_glyph_uv(const font_t *font, char c, float *u0, float *v0, float *u1, float *v1) {
+    int idx = char_to_index(c);
+    if (idx < 0) return 0;
+    int cell_x = (idx % FONT_COLS) * FONT_CELL;
+    int cell_y = (idx / FONT_COLS) * FONT_CELL;
+    *u0 = (float)cell_x / (float)font->tex_width;
+    *v0 = (float)cell_y / (float)font->tex_height;
+    *u1 = (float)(cell_x + FONT_GLYPH_W) / (float)font->tex_width;
+    *v1 = (float)(cell_y + FONT_GLYPH_H) / (float)font->tex_height;
+    return 1;
+}
+
+int font_glyph_advance(int scale) {
+    return (FONT_GLYPH_W + 1) * scale;
+}
+
+int font_text_width(const char *text, int scale) {
+    int len = (int)strlen(text);
+    if (len == 0) return 0;
+    return len * font_glyph_advance(scale) - scale; /* no trailing spacing */
+}
