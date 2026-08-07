@@ -1,12 +1,24 @@
 # Cross-compilation toolchain file for Raspberry Pi Zero W (armv6, armhf).
 #
+# STATUS: unresolved, do not rely on this. It gets past the crt1.o/Scrt1.o
+# mismatch below, but binaries built with it still crash with SIGILL on
+# real ARMv6 hardware, in GCC's own bundled crtbeginS.o/crtendS.o
+# (constructor/destructor boilerplate like register_tm_clones, injected
+# into every binary) -- those object files ship pre-built with the
+# crossbuild-essential-armhf package itself, compiled Thumb-2, which an
+# ARMv6 core cannot execute at all. No flag fixes this; the objects would
+# need to be rebuilt or sourced from an actually ARMv6-targeted compiler.
+# Kept here as a record of what was tried, in case a real ARMv6 toolchain
+# becomes available and this is worth revisiting. Until then, build
+# natively on the Pi instead -- see docs/DEPLOYMENT.md.
+#
 # Usage:
 #   cmake -B build -S . \
 #         -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-rpi.cmake \
 #         -DRPI_SYSROOT=$HOME/rpi-sysroot
 #
-# See README.md for how to install the arm-linux-gnueabihf cross compiler
-# and populate RPI_SYSROOT from your actual Pi.
+# See docs/DEPLOYMENT.md for how to install the arm-linux-gnueabihf cross
+# compiler and populate RPI_SYSROOT from your actual Pi.
 
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR arm)

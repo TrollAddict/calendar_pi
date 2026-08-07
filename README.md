@@ -10,6 +10,12 @@ keys in your terminal to navigate.
 - **Enter / Space** — jump back to today
 - **q / Ctrl-C / Esc** — quit
 
+Run with no controlling terminal attached (e.g. launched by systemd at
+boot) and it doesn't exit — it falls back to a passive, read-only display
+of the current date instead. See `docs/DEPLOYMENT.md` for running it that
+way persistently, plus the full story on getting a headless Zero W to this
+point in the first place (SD card pre-seeding, Wi-Fi, the works).
+
 ## How it's built
 
 - `src/drm_display.*` — opens `/dev/dri/cardN`, finds the connected display
@@ -33,71 +39,58 @@ Bullseye and newer use by default. Confirm it's active:
 grep vc4 /boot/firmware/config.txt   # expect: dtoverlay=vc4-kms-v3d
 ```
 
-## 1. Install a cross compiler (on your dev machine)
+## Building — natively on the Pi (the path that actually works)
 
+Cross-compiling from another machine looked appealing but hit real ARMv6
+toolchain incompatibilities that don't have a clean fix — see the warning
+at the top of `cmake/toolchain-rpi.cmake` if curious, or
+`docs/DEPLOYMENT.md` for the full story. Building directly on the Pi
+sidesteps the whole problem, and the project is small enough that a single
+ARM11 core still builds it in a couple of minutes.
+
+On the Pi:
 ```sh
-sudo apt install crossbuild-essential-armhf
+sudo apt install build-essential cmake libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev
 ```
-
-This provides `arm-linux-gnueabihf-gcc`, targeting the same armhf/glibc ABI
-Raspberry Pi OS (32-bit) uses.
-
-## 2. Build a sysroot from your actual Pi
-
-The cross compiler needs ARM builds of libdrm, gbm, EGL and GLESv2 headers
-and libraries — these must come from the Pi itself so they match its Mesa
-version. On the **Pi**, install the dev packages:
-
+Copy the source over (from your dev machine):
 ```sh
-sudo apt install libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev
+rsync -rl --exclude=build /path/to/calendar_pi/ your_username@<pi-address>:~/calendar_pi/
 ```
-
-Then, back on your **dev machine**, pull a sysroot over rsync (replace
-`pi@raspberrypi.local` with your Pi's user@host):
-
+Then, on the Pi:
 ```sh
-mkdir -p ~/rpi-sysroot
-rsync -rl --safe-links pi@raspberrypi.local:/usr/include ~/rpi-sysroot/usr/
-rsync -rl --safe-links pi@raspberrypi.local:/usr/lib ~/rpi-sysroot/usr/
-rsync -rl --safe-links pi@raspberrypi.local:/lib ~/rpi-sysroot/
-```
-
-If linking later fails on absolute symlinks (common with rsynced sysroots,
-e.g. a `.so` symlink pointing at `/lib/arm-linux-gnueabihf/...`), rewrite
-sysroot symlinks to be relative — search for
-`sysroot-relativelinks.py` (from the Raspberry Pi tools project) or fix the
-handful of offending links by hand with `find ~/rpi-sysroot -xtype l`.
-
-## 3. Configure and build
-
-```sh
-cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-rpi.cmake -DRPI_SYSROOT=$HOME/rpi-sysroot
+cd ~/calendar_pi
+cmake -B build -S .
 cmake --build build -j$(nproc)
-```
-
-This produces `build/calendar_pi`, an armhf ELF binary.
-
-## 4. Deploy and run
-
-```sh
-scp build/calendar_pi pi@raspberrypi.local:~/
-ssh pi@raspberrypi.local
-./calendar_pi
+./build/calendar_pi
 ```
 
 Notes:
 
 - The Pi must **not** be running a desktop compositor (X11/Wayland/labwc) at
   the same time — whichever process holds DRM master owns the display.
-  Either boot the Pi to the CLI (`sudo raspi-config` → System Options → Boot
-  → Console), or stop the desktop session before running
+  Raspberry Pi OS **Lite** avoids this entirely (no desktop to conflict
+  with); on Full, stop the desktop session first
   (`sudo systemctl stop lightdm` or equivalent, depending on your image).
-- The `pi` user is normally already in the `video`/`render` groups on
+- Your user is normally already in the `video`/`render` groups on
   Raspberry Pi OS, so `/dev/dri/card*` access shouldn't need root. If you
   get a permission error opening the device, check `groups` and
   `ls -l /dev/dri/`.
 - Pass a different device as the first argument if `/dev/dri/card0` isn't
   the right one, e.g. `./calendar_pi /dev/dri/card1`.
+- For running this persistently on boot (systemd unit, and the tradeoffs
+  that come with it) and the full headless SD-card setup story, see
+  `docs/DEPLOYMENT.md`.
+
+## Cross-compiling (unresolved — for reference only)
+
+`cmake/toolchain-rpi.cmake` exists and gets partway there (fixes a
+crt1.o/Scrt1.o sysroot mismatch), but binaries built with it still crash
+with `SIGILL` on real hardware from a second, unfixed issue in GCC's own
+bundled startup objects. Don't use it expecting a working binary today —
+see the comment block at the top of that file for what was tried and why
+it's parked. If you want to attempt it anyway (e.g. as a starting point for
+finding a real fix), `docs/DEPLOYMENT.md` has the sysroot-pulling steps
+that were used to get this far.
 
 ## Running the native date-math test
 
