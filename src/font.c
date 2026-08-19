@@ -2,9 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* 37 glyphs: space, '0'-'9', 'A'-'Z'. Each glyph is 7 rows of 5 bits,
- * bit 4 = leftmost pixel, bit 0 = rightmost pixel. */
-#define FONT_NUM_GLYPHS 37
+/* 42 glyphs: space, '0'-'9', 'A'-'Z', ':' '-' '.' '/' '+'. Each glyph is
+ * 7 rows of 5 bits, bit 4 = leftmost pixel, bit 0 = rightmost pixel. */
+#define FONT_NUM_GLYPHS 42
 #define FONT_COLS 8
 #define FONT_CELL 8 /* atlas cell size in pixels (5x7 glyph + padding) */
 #define FONT_ROWS ((FONT_NUM_GLYPHS + FONT_COLS - 1) / FONT_COLS)
@@ -47,6 +47,11 @@ static const unsigned char GLYPHS[FONT_NUM_GLYPHS][FONT_GLYPH_H] = {
     /* 'X' */ {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11},
     /* 'Y' */ {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04},
     /* 'Z' */ {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F},
+    /* ':' */ {0x00, 0x0C, 0x0C, 0x00, 0x0C, 0x0C, 0x00},
+    /* '-' */ {0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00},
+    /* '.' */ {0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C},
+    /* '/' */ {0x01, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10},
+    /* '+' */ {0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00},
 };
 
 static int char_to_index(char c) {
@@ -54,6 +59,11 @@ static int char_to_index(char c) {
     if (c >= '0' && c <= '9') return 1 + (c - '0');
     if (c >= 'A' && c <= 'Z') return 11 + (c - 'A');
     if (c >= 'a' && c <= 'z') return 11 + (c - 'a');
+    if (c == ':') return 37;
+    if (c == '-') return 38;
+    if (c == '.') return 39;
+    if (c == '/') return 40;
+    if (c == '+') return 41;
     return -1;
 }
 

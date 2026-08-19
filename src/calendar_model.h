@@ -21,6 +21,9 @@ void cal_add_days(cal_date_t *d, int delta);
 /* Add `delta` months to (*year, *month), clamping day is the caller's job. */
 void cal_add_months(int *year, int *month, int delta);
 
+/* Sunday that starts the week containing d. */
+void cal_week_start(cal_date_t d, cal_date_t *out);
+
 extern const char *const CAL_MONTH_NAMES[12];
 extern const char *const CAL_WEEKDAY_ABBR[7];
 

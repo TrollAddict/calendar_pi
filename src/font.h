@@ -12,8 +12,9 @@ typedef struct {
     int tex_height;
 } font_t;
 
-/* Builds a procedural bitmap-font atlas texture (space, 0-9, A-Z only;
- * lowercase is folded to uppercase). Returns 0 on success. */
+/* Builds a procedural bitmap-font atlas texture (space, 0-9, A-Z,
+ * ':' '-' '.' '/' '+' only; lowercase is folded to uppercase). Returns
+ * 0 on success. */
 int font_init(font_t *font);
 void font_destroy(font_t *font);
 
