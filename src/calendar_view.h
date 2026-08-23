@@ -13,9 +13,9 @@
 void draw_week(renderer_t *rnd, cal_date_t today, cal_date_t selected,
                const gcal_event_t *events, int event_count, gcal_sync_status_t status);
 
-/* Full-screen device-authorization prompt shown while status is
- * NEEDS_AUTH/WAITING_APPROVAL. */
-void draw_auth_screen(renderer_t *rnd, const char *user_code,
-                       const char *verification_url, int seconds_remaining);
+/* Full-screen prompt shown while status is NEEDS_AUTH: no refresh
+ * token file yet, so nothing to sync. Points at the one-time
+ * out-of-band authorization step (tools/authorize_gcal.py). */
+void draw_needs_auth_screen(renderer_t *rnd);
 
 #endif

@@ -1,9 +1,27 @@
 # Connecting your Google Calendar
 
 `calendar_pi` reads your primary Google Calendar (read-only) via the
-Calendar API. This is a one-time setup in Google Cloud Console, done from
-any browser — none of it happens on the Pi. Do this before first boot, or
-before running the built binary for the first time.
+Calendar API. Setup has two parts: a one-time Google Cloud Console
+configuration (any browser), and a one-time authorization step run on a
+machine with a real browser (your laptop/desktop — **not** the Pi, which
+has no browser and no keyboard/monitor by design).
+
+## Why this isn't a "code appears on the Pi's screen" flow
+
+An earlier version of this doc described a device-authorization flow
+(enter a short code shown on the Pi into a URL on your phone). That
+doesn't work: Google's OAuth device-authorization endpoint only supports
+a small fixed allowlist of scopes (`openid`/`email`/`profile`, two narrow
+Drive scopes, two YouTube scopes) and Calendar API scopes aren't on it —
+confirmed against
+[Google's own docs](https://developers.google.com/identity/protocols/oauth2/limited-input-device).
+No amount of consent-screen configuration fixes this; it's a hard
+platform restriction. So instead, authorization happens once, out of
+band, using the standard browser-based Authorization Code flow via a
+small script — `tools/authorize_gcal.py` — that you run on your own
+computer. It hands you a refresh token, which you copy to the Pi. From
+then on, the Pi only ever does ordinary token *refreshes* (not the
+restricted device flow), which works fine for any scope.
 
 ## 1. Create a Google Cloud project
 
@@ -22,36 +40,55 @@ Go to **APIs & Services → OAuth consent screen**.
 
 - User type: **External** (fine for personal use — you don't need Google
   Workspace).
-- Add the scope `.../auth/calendar.events.readonly` if prompted.
+- **Add the scope `https://www.googleapis.com/auth/calendar.events.readonly`
+  — this is required, not optional.** Go to the **Data Access** (or
+  "Scopes") section, click **Add or Remove Scopes**, and either find it by
+  searching "Google Calendar API" in the filtered list, or paste the full
+  scope URL into the "manually add scopes" box if it doesn't show up.
 - Add your own Google account as a **test user** if the screen offers it.
 
-**Important: set publishing status to "In production," not "Testing."**
-This is the single most common way this integration silently breaks:
-refresh tokens issued while the consent screen is in **Testing** mode
-expire after **7 days**, so the Pi would authenticate fine, run for a
-week, then quietly stop syncing with no on-screen error beyond the
-"OFFLINE" footer. "In production" issues long-lived refresh tokens
-instead. You'll see an "unverified app" warning the first time you
-approve access — that's expected and safe to click through for a personal,
-single-user tool like this (full Google verification is for apps used by
-other people, not relevant here).
+**Set publishing status to "In production," not "Testing."** This now
+lives under the **Audience** tab in the left sidebar — click **Publish
+App** there, then **Confirm**. This is the single most common way this
+integration silently breaks later: refresh tokens issued while still in
+**Testing** mode expire after **7 days**, so sync would work fine, run
+for a week, then quietly die with no error beyond the "OFFLINE" footer.
+"In production" issues long-lived refresh tokens instead. You'll see an
+"unverified app" warning the first time you approve access — expected and
+safe to click through for a personal, single-user tool like this (full
+Google verification is only relevant for apps used by people other than
+you).
 
 ## 4. Create an OAuth client
 
 Go to **APIs & Services → Credentials → Create Credentials → OAuth client
 ID**.
 
-- Application type: **TV and Limited Input devices** — this is Google's
-  documented client type for the device-authorization flow this app uses.
-  (A **Desktop app** client type is also known to work against the same
-  endpoints, if you already have one of those instead.)
+- Application type: **Desktop app** — this is what supports the
+  browser-based Authorization Code flow `tools/authorize_gcal.py` uses.
+  (If you previously created a "TV and Limited Input devices" client
+  while following an older version of this doc, it won't work here —
+  create a new Desktop app client instead.)
 - Give it any name (e.g. "calendar_pi").
 
 After creating it, note the **Client ID** and **Client Secret** shown.
 
-## 5. Configure the Pi
+## 5. Authorize, on your own computer
 
-On the Pi, create `~/.config/calendar_pi/client.conf`:
+On your laptop/desktop (needs Python 3, no other dependencies), from a
+checkout of this repo:
+```sh
+python3 tools/authorize_gcal.py --client-id YOUR_CLIENT_ID.apps.googleusercontent.com --client-secret YOUR_CLIENT_SECRET
+```
+It opens your browser to Google's consent screen (or prints a URL to open
+by hand if it can't launch one). Sign in with the Google account whose
+calendar you want to display and approve access. The script then prints
+a **refresh token** and also saves it to `./gcal_refresh_token.txt`.
+
+## 6. Configure the Pi
+
+On the Pi, create `~/.config/calendar_pi/client.conf` with the **same**
+client ID/secret from step 4:
 ```
 client_id=YOUR_CLIENT_ID.apps.googleusercontent.com
 client_secret=YOUR_CLIENT_SECRET
@@ -60,38 +97,23 @@ client_secret=YOUR_CLIENT_SECRET
 doesn't exist yet — you can create it by hand too:
 `mkdir -p ~/.config/calendar_pi`.)
 
-This file only needs to exist on the Pi — never commit it to the repo, and
-it's not something you need on your dev machine.
-
-## 6. First run: approve access
-
-Run the built binary (`./build/calendar_pi`, interactively or via the
-systemd service — see `docs/DEPLOYMENT.md`). With no stored authorization
-yet, the **physical HDMI display** shows:
-
-```
-CONNECT GOOGLE CALENDAR
-
-GO TO:
-GOOGLE.COM/DEVICE
-
-ENTER CODE:
-ABCD-EFGH
-
-EXPIRES IN 14:32
+Then copy the refresh token from step 5 onto the Pi as the token file
+(mode `0600`):
+```sh
+scp gcal_refresh_token.txt your_username@<pi-address>:~/.config/calendar_pi/token
+ssh your_username@<pi-address> chmod 600 ~/.config/calendar_pi/token
 ```
 
-On your phone or laptop, open the URL shown, sign in with the Google
-account whose calendar you want to display, and enter the code. Approval
-usually takes a few seconds to be picked up — the Pi is polling Google in
-the background. Once approved, the screen switches over to the live week
-view automatically, and a refresh token is saved to
-`~/.config/calendar_pi/token` (mode `0600`) so this step isn't needed
-again unless that file is deleted or access is revoked from your Google
-Account's [connected apps settings](https://myaccount.google.com/permissions).
+Neither file should ever be committed to the repo.
 
-If the code expires before you approve it (the countdown reaches zero),
-the app requests a fresh one automatically — no restart needed.
+## 7. Run it
+
+`./build/calendar_pi` (or restart the systemd service). With both files
+in place it goes straight to the live week view — no on-screen prompt
+needed, since authorization already happened on your computer in step 5.
+If the token file is still missing, the Pi shows a static "not yet
+authorized" screen pointing back at this doc rather than trying (and
+failing) to negotiate anything itself.
 
 ## Troubleshooting
 
@@ -101,7 +123,10 @@ the app requests a fresh one automatically — no restart needed.
   usually a network issue, or a refresh token that's expired (see the
   7-day Testing-mode gotcha above) or been revoked.
 - **Footer says "GOOGLE CALENDAR NOT CONFIGURED"**: `client.conf` is
-  missing or malformed on the Pi — re-check step 5.
+  missing or malformed on the Pi — re-check step 6.
+- **Screen says "NOT YET AUTHORIZED"**: the token file isn't in place yet
+  — re-check step 6's `scp`/`chmod`, or redo step 5.
 - **Want to re-authorize from scratch** (e.g. switching Google accounts):
-  delete `~/.config/calendar_pi/token` and restart the app; it'll show the
-  device-authorization screen again.
+  delete `~/.config/calendar_pi/token` on the Pi, rerun
+  `tools/authorize_gcal.py` on your computer, and copy the new token over
+  (step 6).

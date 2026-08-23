@@ -27,7 +27,7 @@ add_executable(calendar_pi
     src/gcal_colors.c
     src/config_store.c
     src/event_store.c
-    src/oauth_device.c
+    src/oauth_refresh.c
     src/gcal_client.c
     src/gcal_sync.c
     third_party/cJSON.c

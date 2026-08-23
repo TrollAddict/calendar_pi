@@ -88,15 +88,11 @@ int main(int argc, char **argv) {
         }
 
         int event_count = event_store_snapshot(&store, events, EVENT_STORE_MAX);
-
-        gcal_sync_status_t status;
-        char user_code[32], verification_url[128];
-        int seconds_remaining;
-        gcal_sync_get_status(&sync, &status, user_code, verification_url, &seconds_remaining);
+        gcal_sync_status_t status = gcal_sync_get_status(&sync);
 
         renderer_begin_frame(&renderer);
-        if (status == GCAL_STATE_NEEDS_AUTH || status == GCAL_STATE_WAITING_APPROVAL) {
-            draw_auth_screen(&renderer, user_code, verification_url, seconds_remaining);
+        if (status == GCAL_STATE_NEEDS_AUTH) {
+            draw_needs_auth_screen(&renderer);
         } else {
             draw_week(&renderer, today, selected, events, event_count, status);
         }

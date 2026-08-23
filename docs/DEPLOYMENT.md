@@ -201,23 +201,23 @@ comment.
 ## 5. Connecting Google Calendar
 
 The app pulls your primary Google Calendar's events over the network. See
-`docs/GOOGLE_CALENDAR_SETUP.md` for the one-time Google Cloud Console setup
-(creating an OAuth client, enabling the Calendar API) — do that first, and
-drop the resulting `client_id`/`client_secret` into
-`~/.config/calendar_pi/client.conf` on the Pi.
+`docs/GOOGLE_CALENDAR_SETUP.md` for the full setup: a one-time Google
+Cloud Console configuration, then a one-time authorization step run **on
+your dev machine** (`tools/authorize_gcal.py` — needs a real browser,
+which the Pi doesn't have), which produces a refresh token. Drop the
+`client_id`/`client_secret` into `~/.config/calendar_pi/client.conf` and
+that refresh token into `~/.config/calendar_pi/token` (mode `0600`) on the
+Pi — both are plain files, easiest to place via the same `rsync`/`scp`
+you're already using to deploy the source.
 
-The first time you run the built binary with no stored authorization yet,
-the **physical display** (not SSH) shows a full-screen prompt with a short
-code and a URL. Open that URL on your phone or laptop, enter the code, and
-approve access — no keyboard/monitor/browser is ever needed on the Pi
-itself for this step. This is exactly the same "no display attached to do
-setup" situation as the headless OS install above, except this time you
-watch the code appear on the Pi's own HDMI output rather than doing
-anything blind. Once approved it switches over to the live week view
-automatically and re-syncs every 15 minutes from then on. This applies
-whether you're running interactively over SSH or as the systemd service
-below — a freshly deployed instance with no token file yet will show this
-onboarding screen in place of the calendar until you approve it.
+Unlike the OS-level headless setup above, there's no on-device approval
+step to watch for here — authorization happens entirely on your dev
+machine before you ever touch the Pi. If you do run the binary before
+those two files are in place (e.g. testing the build before finishing
+Google setup), the physical display just shows a static "not yet
+authorized" screen in place of the calendar rather than the live view;
+once both files exist, a restart (or the background sync thread noticing
+the token file, checked every few seconds) picks it up automatically.
 
 ## 6. Running persistently on boot
 

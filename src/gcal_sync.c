@@ -1,7 +1,7 @@
 #define _DEFAULT_SOURCE
 #include "gcal_sync.h"
 #include "config_store.h"
-#include "oauth_device.h"
+#include "oauth_refresh.h"
 #include "gcal_client.h"
 #include <string.h>
 #include <stdio.h>
@@ -9,21 +9,11 @@
 #define SYNC_INTERVAL_SEC 900 /* 15 min; see docs -- 2 HTTPS calls/cycle, well under API quotas */
 #define OFFLINE_RETRY_SEC 60
 #define OFFLINE_RETRY_MAX_STREAK 5
-#define GCAL_SCOPE "https://www.googleapis.com/auth/calendar.events.readonly"
+#define NEEDS_AUTH_POLL_SEC 3 /* how often to check whether a token has been dropped in place */
 
 static void set_status(gcal_sync_t *sync, gcal_sync_status_t status) {
     pthread_mutex_lock(&sync->lock);
     sync->status = status;
-    pthread_mutex_unlock(&sync->lock);
-}
-
-static void set_auth_prompt(gcal_sync_t *sync, const char *user_code, const char *verification_url,
-                             time_t expires_at) {
-    pthread_mutex_lock(&sync->lock);
-    sync->status = GCAL_STATE_NEEDS_AUTH;
-    snprintf(sync->user_code, sizeof(sync->user_code), "%s", user_code);
-    snprintf(sync->verification_url, sizeof(sync->verification_url), "%s", verification_url);
-    sync->code_expires_at = expires_at;
     pthread_mutex_unlock(&sync->lock);
 }
 
@@ -45,34 +35,6 @@ static int interruptible_wait(gcal_sync_t *sync, int seconds) {
     return stop;
 }
 
-/* Runs the device-code flow to completion, retrying on expiry, until
- * a refresh token is obtained or a stop is requested. Returns 1 on
- * success (refresh_token_out filled and persisted), 0 if stopped. */
-static int bootstrap_auth(gcal_sync_t *sync, const gcal_client_config_t *cfg,
-                           char *refresh_token_out, size_t cap) {
-    while (!sync->stop) {
-        oauth_device_code_t code;
-        if (oauth_device_start(cfg->client_id, GCAL_SCOPE, &code) != 0) {
-            set_status(sync, GCAL_STATE_OFFLINE);
-            if (interruptible_wait(sync, OFFLINE_RETRY_SEC)) return 0;
-            continue;
-        }
-        set_auth_prompt(sync, code.user_code, code.verification_url, time(NULL) + code.expires_in_sec);
-
-        oauth_tokens_t tokens;
-        set_status(sync, GCAL_STATE_WAITING_APPROVAL);
-        int rc = oauth_device_poll(cfg->client_id, cfg->client_secret, &code, &sync->stop, &tokens);
-        if (sync->stop) return 0;
-        if (rc == 0) {
-            snprintf(refresh_token_out, cap, "%s", tokens.refresh_token);
-            token_save_refresh(refresh_token_out);
-            return 1;
-        }
-        /* Code expired or was denied -- loop back and request a fresh one. */
-    }
-    return 0;
-}
-
 static void *sync_thread_main(void *arg) {
     gcal_sync_t *sync = (gcal_sync_t *)arg;
 
@@ -82,9 +44,16 @@ static void *sync_thread_main(void *arg) {
         return NULL;
     }
 
+    /* Google's device-authorization flow doesn't support Calendar API
+     * scopes (confirmed against Google's own docs), so the refresh
+     * token has to come from a one-time out-of-band exchange --
+     * tools/authorize_gcal.py, run on a machine with a real browser --
+     * whose output gets copied into the token file by hand. Poll for
+     * it rather than negotiating anything ourselves. */
     char refresh_token[256];
-    if (token_load_refresh(refresh_token, sizeof(refresh_token)) != 0) {
-        if (!bootstrap_auth(sync, &cfg, refresh_token, sizeof(refresh_token))) return NULL;
+    while (token_load_refresh(refresh_token, sizeof(refresh_token)) != 0) {
+        set_status(sync, GCAL_STATE_NEEDS_AUTH);
+        if (interruptible_wait(sync, NEEDS_AUTH_POLL_SEC)) return NULL;
     }
 
     int consecutive_failures = 0;
@@ -149,14 +118,9 @@ void gcal_sync_stop(gcal_sync_t *sync) {
     pthread_mutex_destroy(&sync->lock);
 }
 
-void gcal_sync_get_status(gcal_sync_t *sync, gcal_sync_status_t *status,
-                           char *user_code, char *verification_url, int *seconds_remaining) {
+gcal_sync_status_t gcal_sync_get_status(gcal_sync_t *sync) {
     pthread_mutex_lock(&sync->lock);
-    *status = sync->status;
-    snprintf(user_code, 32, "%s", sync->user_code);
-    snprintf(verification_url, 128, "%s", sync->verification_url);
-    time_t now = time(NULL);
-    long remaining = (long)(sync->code_expires_at - now);
-    *seconds_remaining = remaining > 0 ? (int)remaining : 0;
+    gcal_sync_status_t status = sync->status;
     pthread_mutex_unlock(&sync->lock);
+    return status;
 }

@@ -343,36 +343,39 @@ void draw_week(renderer_t *rnd, cal_date_t today, cal_date_t selected,
     }
 }
 
-void draw_auth_screen(renderer_t *rnd, const char *user_code, const char *verification_url,
-                       int seconds_remaining) {
+void draw_needs_auth_screen(renderer_t *rnd) {
     int w = rnd->screen_w;
     int h = rnd->screen_h;
 
     int title_scale = h / 220;
     if (title_scale < 2) title_scale = 2;
-    int body_scale = h / 110;
-    if (body_scale < 3) body_scale = 3;
-    int code_scale = h / 70;
-    if (code_scale < 4) code_scale = 4;
+    int body_scale = h / 140;
+    if (body_scale < 2) body_scale = 2;
 
-    float cy = (float)h * 0.28f;
-    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, title_scale, "CONNECT GOOGLE CALENDAR", 0.92f, 0.92f, 0.95f,
-                                1.0f);
+    /* Font has no lowercase, underscore, or tilde glyphs (see font.c),
+     * so this deliberately avoids spelling out exact file paths --
+     * the written setup docs have those verbatim. */
+    static const char *LINES[] = {
+        "GOOGLE CALENDAR NOT YET AUTHORIZED",
+        "",
+        "RUN THE AUTHORIZE SCRIPT ON YOUR COMPUTER",
+        "THEN COPY THE TOKEN IT PRINTS TO THIS PI",
+        "",
+        "SEE THE SETUP DOCS FOR DETAILS",
+    };
+    int n_lines = (int)(sizeof(LINES) / sizeof(LINES[0]));
 
-    cy += (float)(FONT_GLYPH_H * title_scale) + (float)h * 0.06f;
-    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, body_scale, "GO TO:", 0.65f, 0.70f, 0.85f, 1.0f);
-    cy += (float)(FONT_GLYPH_H * body_scale) + 8.0f;
-    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, body_scale, verification_url, 0.95f, 0.95f, 0.98f, 1.0f);
+    float line_h = (float)(FONT_GLYPH_H * body_scale) + 10.0f;
+    float total_h = line_h * (float)n_lines + (float)(FONT_GLYPH_H * title_scale);
+    float cy = ((float)h - total_h) / 2.0f;
 
-    cy += (float)(FONT_GLYPH_H * body_scale) + (float)h * 0.06f;
-    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, body_scale, "ENTER CODE:", 0.65f, 0.70f, 0.85f, 1.0f);
-    cy += (float)(FONT_GLYPH_H * body_scale) + 8.0f;
-    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, code_scale, user_code, 0.95f, 0.75f, 0.20f, 1.0f);
+    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, title_scale, LINES[0], 0.92f, 0.92f, 0.95f, 1.0f);
+    cy += (float)(FONT_GLYPH_H * title_scale) + line_h;
 
-    cy += (float)(FONT_GLYPH_H * code_scale) + (float)h * 0.06f;
-    int mm = seconds_remaining / 60;
-    int ss = seconds_remaining % 60;
-    char countdown[32];
-    snprintf(countdown, sizeof(countdown), "EXPIRES IN %d:%02d", mm, ss);
-    renderer_add_text_centered(rnd, (float)w / 2.0f, cy, body_scale, countdown, 0.55f, 0.55f, 0.60f, 1.0f);
+    for (int i = 1; i < n_lines; i++) {
+        if (LINES[i][0]) {
+            renderer_add_text_centered(rnd, (float)w / 2.0f, cy, body_scale, LINES[i], 0.75f, 0.78f, 0.88f, 1.0f);
+        }
+        cy += line_h;
+    }
 }

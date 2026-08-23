@@ -35,7 +35,7 @@ Wi-Fi, the works).
 - `src/input.*` — puts the SSH session's terminal into raw, non-blocking
   mode and decodes arrow-key escape sequences.
 - `src/calendar_view.*` — draws the week view (hour grid, all-day strip,
-  event blocks, "now" line) and the one-time device-authorization prompt.
+  event blocks, "now" line) and the static "not yet authorized" screen.
   Pure rendering: it never touches the network.
 - `src/gcal_colors.*` — Google Calendar's fixed 11-color event palette.
 - `src/config_store.*` — reads the user-provided OAuth client
@@ -44,27 +44,30 @@ Wi-Fi, the works).
 - `src/event_store.*` — mutex-protected shared list of fetched events,
   written by the background sync thread and snapshotted once per frame by
   the render loop.
-- `src/oauth_device.*` — Google's OAuth 2.0 device-authorization flow
-  (RFC 8628) plus refresh-token exchange, via libcurl.
+- `src/oauth_refresh.*` — `grant_type=refresh_token` token exchange, via
+  libcurl. (Google's OAuth device-authorization flow was tried first but
+  doesn't support Calendar API scopes at all — see
+  `docs/GOOGLE_CALENDAR_SETUP.md`.)
 - `src/gcal_client.*` — fetches and parses `events.list` from the Google
   Calendar API (vendored `third_party/cJSON` for parsing).
-- `src/gcal_sync.*` — background thread that bootstraps authorization and
-  re-syncs events every 15 minutes.
+- `src/gcal_sync.*` — background thread that waits for a refresh token to
+  appear, then re-syncs events every 15 minutes.
 
 ## Google Calendar sync
 
 The calendar is populated live from your Google Calendar's primary
-calendar (read-only). One-time setup (creating a Google Cloud OAuth
-client, enabling the Calendar API) is covered in
-`docs/GOOGLE_CALENDAR_SETUP.md` — do that first.
+calendar (read-only). Setup is covered in `docs/GOOGLE_CALENDAR_SETUP.md`
+— do that first. In short: a one-time Google Cloud Console configuration,
+then a one-time authorization step you run on your own computer
+(`tools/authorize_gcal.py`, needs Python 3, opens a browser) that produces
+a refresh token you copy to the Pi. The Pi never needs a browser or
+credentials of its own beyond that copied token.
 
-On first run with no stored authorization, the app takes over the whole
-screen with a short code and a URL (e.g. `google.com/device`) — open that
-URL on your phone or laptop, enter the code, and approve access. No
-browser or credentials ever touch the Pi itself. After that one-time step
-it stores a refresh token and syncs automatically every 15 minutes; if the
-network drops or a sync fails, it keeps showing the last successfully
-fetched events with a small "OFFLINE" footer rather than going blank.
+Once configured, it syncs automatically every 15 minutes; if the network
+drops or a sync fails, it keeps showing the last successfully fetched
+events with a small "OFFLINE" footer rather than going blank. Until the
+token is in place, the Pi shows a static "not yet authorized" screen
+instead of the calendar.
 
 This targets the modern Mesa `vc4-kms-v3d` driver stack that Raspberry Pi OS
 Bullseye and newer use by default. Confirm it's active:
