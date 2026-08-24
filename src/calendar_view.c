@@ -142,10 +142,10 @@ static int layout_day_events(const gcal_event_t *events, int event_count, time_t
 
 /* --- main view -------------------------------------------------------- */
 
-void draw_week(renderer_t *rnd, cal_date_t today, cal_date_t selected,
+void draw_week(renderer_t *rnd, int region_w, int region_h, cal_date_t today, cal_date_t selected,
                const gcal_event_t *events, int event_count, gcal_sync_status_t status) {
-    int w = rnd->screen_w;
-    int h = rnd->screen_h;
+    int w = region_w;
+    int h = region_h;
 
     int margin = w / 40;
     if (margin < 10) margin = 10;
@@ -343,9 +343,9 @@ void draw_week(renderer_t *rnd, cal_date_t today, cal_date_t selected,
     }
 }
 
-void draw_needs_auth_screen(renderer_t *rnd) {
-    int w = rnd->screen_w;
-    int h = rnd->screen_h;
+void draw_needs_auth_screen(renderer_t *rnd, int region_w, int region_h) {
+    int w = region_w;
+    int h = region_h;
 
     int title_scale = h / 220;
     if (title_scale < 2) title_scale = 2;

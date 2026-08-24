@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-time Google Calendar authorization helper for calendar_pi.
+"""One-time Google Calendar + Tasks authorization helper for calendar_pi.
 
 Run this on a machine with a real browser (your laptop/desktop, NOT the
 Pi) to obtain a refresh token, then copy that token to the Pi at
@@ -31,7 +31,10 @@ import webbrowser
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
-SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly"
+SCOPE = (
+    "https://www.googleapis.com/auth/calendar.events.readonly "
+    "https://www.googleapis.com/auth/tasks.readonly"
+)
 
 
 def make_pkce_pair():

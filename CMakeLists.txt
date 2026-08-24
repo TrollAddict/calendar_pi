@@ -30,11 +30,20 @@ add_executable(calendar_pi
     src/oauth_refresh.c
     src/gcal_client.c
     src/gcal_sync.c
+    src/task_store.c
+    src/gtasks_client.c
+    src/gtasks_sync.c
+    src/todo_view.c
+    src/camera_store.c
+    src/reolink_client.c
+    src/reolink_sync.c
+    src/camera_view.c
     third_party/cJSON.c
+    third_party/stb_image_impl.c
 )
 
 # Vendored third-party code isn't held to this project's own warning bar.
-set_source_files_properties(third_party/cJSON.c PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties(third_party/cJSON.c third_party/stb_image_impl.c PROPERTIES COMPILE_OPTIONS "-w")
 
 target_include_directories(calendar_pi PRIVATE
     ${DRM_INCLUDE_DIRS}

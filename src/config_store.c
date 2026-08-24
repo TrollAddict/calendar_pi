@@ -62,6 +62,38 @@ int config_load_client(gcal_client_config_t *out) {
     return 0;
 }
 
+int config_load_camera(camera_config_t *out) {
+    memset(out, 0, sizeof(*out));
+
+    char path[CONFIG_PATH_CAP];
+    if (config_dir_path(path, sizeof(path), "camera.conf") != 0) return -1;
+
+    FILE *f = fopen(path, "r");
+    if (!f) return -1;
+
+    char line[CONFIG_STR_CAP + 64];
+    while (fgets(line, sizeof(line), f)) {
+        trim_newline(line);
+        const char *eq = strchr(line, '=');
+        if (!eq) continue;
+        size_t key_len = (size_t)(eq - line);
+        const char *val = eq + 1;
+        if (key_len == 4 && strncmp(line, "host", 4) == 0) {
+            snprintf(out->host, sizeof(out->host), "%s", val);
+        } else if (key_len == 4 && strncmp(line, "user", 4) == 0) {
+            snprintf(out->user, sizeof(out->user), "%s", val);
+        } else if (key_len == 8 && strncmp(line, "password", 8) == 0) {
+            snprintf(out->password, sizeof(out->password), "%s", val);
+        } else if (key_len == 7 && strncmp(line, "channel", 7) == 0) {
+            out->channel = atoi(val);
+        }
+    }
+    fclose(f);
+
+    if (!out->host[0] || !out->user[0] || !out->password[0]) return -1;
+    return 0;
+}
+
 int token_load_refresh(char *out, size_t cap) {
     char path[CONFIG_PATH_CAP];
     if (config_dir_path(path, sizeof(path), "token") != 0) return -1;

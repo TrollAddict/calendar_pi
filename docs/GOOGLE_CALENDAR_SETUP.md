@@ -1,10 +1,17 @@
-# Connecting your Google Calendar
+# Connecting your Google Calendar and Tasks
 
 `calendar_pi` reads your primary Google Calendar (read-only) via the
-Calendar API. Setup has two parts: a one-time Google Cloud Console
-configuration (any browser), and a one-time authorization step run on a
-machine with a real browser (your laptop/desktop — **not** the Pi, which
-has no browser and no keyboard/monitor by design).
+Calendar API for the top pane, and your default Google Tasks list
+(read-only) via the Tasks API for the to-do pane. Both ride on the same
+OAuth client and refresh token. Setup has two parts: a one-time Google
+Cloud Console configuration (any browser), and a one-time authorization
+step run on a machine with a real browser (your laptop/desktop — **not**
+the Pi, which has no browser and no keyboard/monitor by design).
+
+If you already set this up for Calendar only before the to-do pane
+existed, see **"Already authorized before the to-do pane existed?"** in
+Troubleshooting below — you'll need to re-authorize once to pick up the
+Tasks scope.
 
 ## Why this isn't a "code appears on the Pi's screen" flow
 
@@ -29,10 +36,11 @@ If you don't already have one: go to the
 [Google Cloud Console](https://console.cloud.google.com/), create a new
 project (any name), and select it.
 
-## 2. Enable the Calendar API
+## 2. Enable the Calendar and Tasks APIs
 
 In the console, go to **APIs & Services → Library**, search for
-**"Google Calendar API"**, and enable it for your project.
+**"Google Calendar API"**, enable it for your project, then repeat for
+**"Google Tasks API"** (this powers the to-do pane).
 
 ## 3. Configure the OAuth consent screen
 
@@ -40,11 +48,13 @@ Go to **APIs & Services → OAuth consent screen**.
 
 - User type: **External** (fine for personal use — you don't need Google
   Workspace).
-- **Add the scope `https://www.googleapis.com/auth/calendar.events.readonly`
-  — this is required, not optional.** Go to the **Data Access** (or
-  "Scopes") section, click **Add or Remove Scopes**, and either find it by
-  searching "Google Calendar API" in the filtered list, or paste the full
-  scope URL into the "manually add scopes" box if it doesn't show up.
+- **Add both of these scopes — required, not optional:**
+  `https://www.googleapis.com/auth/calendar.events.readonly` and
+  `https://www.googleapis.com/auth/tasks.readonly`. Go to the
+  **Data Access** (or "Scopes") section, click **Add or Remove Scopes**,
+  and either find them by searching "Google Calendar API" / "Google Tasks
+  API" in the filtered list, or paste the full scope URLs into the
+  "manually add scopes" box if they don't show up.
 - Add your own Google account as a **test user** if the screen offers it.
 
 **Set publishing status to "In production," not "Testing."** This now
@@ -109,11 +119,11 @@ Neither file should ever be committed to the repo.
 ## 7. Run it
 
 `./build/calendar_pi` (or restart the systemd service). With both files
-in place it goes straight to the live week view — no on-screen prompt
-needed, since authorization already happened on your computer in step 5.
-If the token file is still missing, the Pi shows a static "not yet
-authorized" screen pointing back at this doc rather than trying (and
-failing) to negotiate anything itself.
+in place, both the calendar and to-do panes go straight to live data — no
+on-screen prompt needed, since authorization already happened on your
+computer in step 5. If the token file is still missing, each pane shows
+its own static "not yet authorized" message pointing back at this doc
+rather than trying (and failing) to negotiate anything itself.
 
 ## Troubleshooting
 
@@ -130,3 +140,9 @@ failing) to negotiate anything itself.
   delete `~/.config/calendar_pi/token` on the Pi, rerun
   `tools/authorize_gcal.py` on your computer, and copy the new token over
   (step 6).
+- **Already authorized before the to-do pane existed?** Your existing
+  token was only ever scoped for Calendar, so the to-do pane will show
+  "TO-DO NOT YET AUTHORIZED" even though the calendar pane works fine.
+  Fix: delete `~/.config/calendar_pi/token` on the Pi, rerun
+  `tools/authorize_gcal.py` (it now requests both scopes), and copy the
+  new token over (step 6) — the calendar pane keeps working throughout.

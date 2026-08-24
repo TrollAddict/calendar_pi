@@ -1,23 +1,26 @@
 # calendar_pi
 
-A full-screen weekly calendar for a Raspberry Pi Zero W, rendered with
-OpenGL ES 2.0 directly to the HDMI output via DRM/KMS + GBM + EGL — no
-X11/Wayland desktop required. It syncs live from your Google Calendar and
-draws it as an hour-grid week view, styled like Google Calendar's own week
-view. Controlled remotely: run it from an SSH session and use the arrow
-keys in your terminal to navigate.
+A full-screen dashboard for a Raspberry Pi Zero W, rendered with OpenGL ES
+2.0 directly to the HDMI output via DRM/KMS + GBM + EGL — no X11/Wayland
+desktop required. The screen is split into three panes: a live Google
+Calendar week view across the top, a Google Tasks to-do list in the
+bottom-left, and a Reolink camera feed (periodic snapshots, not full
+video — see `docs/REOLINK_SETUP.md`) in the bottom-right. Controlled
+remotely: run it from an SSH session and use the arrow keys in your
+terminal to navigate the calendar; the to-do and camera panes are
+passive, read-only displays.
 
-- **Left / Right** — move selection by a day
-- **Up / Down** — move selection by a week
+- **Left / Right** — move calendar selection by a day
+- **Up / Down** — move calendar selection by a week
 - **Enter / Space** — jump back to today
 - **q / Ctrl-C / Esc** — quit
 
 Run with no controlling terminal attached (e.g. launched by systemd at
 boot) and it doesn't exit — it falls back to a passive, read-only display
-instead (still fully synced with Google Calendar). See `docs/DEPLOYMENT.md`
-for running it that way persistently, plus the full story on getting a
-headless Zero W to this point in the first place (SD card pre-seeding,
-Wi-Fi, the works).
+instead (still fully synced with Google Calendar/Tasks and polling the
+camera). See `docs/DEPLOYMENT.md` for running it that way persistently,
+plus the full story on getting a headless Zero W to this point in the
+first place (SD card pre-seeding, Wi-Fi, the works).
 
 ## How it's built
 
@@ -25,8 +28,10 @@ Wi-Fi, the works).
   and its preferred mode, and sets up a GBM window surface + EGL/GLES2
   context targeting it. Page flips are synced to vblank.
 - `src/gl_renderer.*` — a tiny batched 2D quad renderer (one draw call for
-  solid rects, one for text), pixel-space orthographic projection done in
-  the vertex shader.
+  solid rects, one for a dynamic image texture, one for text), pixel-space
+  orthographic projection done in the vertex shader. `renderer_set_region`
+  offsets subsequent draws into one of the three screen panes, so each
+  pane's drawing code can work in its own local (0,0)-origin coordinates.
 - `src/font.*` — a procedurally-built 5x7 bitmap font atlas (space, 0-9,
   A-Z) rendered as a texture, no font files or FreeType needed.
 - `src/calendar_model.*` — pure date math (Zeller's congruence for weekday,
@@ -38,8 +43,8 @@ Wi-Fi, the works).
   event blocks, "now" line) and the static "not yet authorized" screen.
   Pure rendering: it never touches the network.
 - `src/gcal_colors.*` — Google Calendar's fixed 11-color event palette.
-- `src/config_store.*` — reads the user-provided OAuth client
-  id/secret and persists the refresh token, under
+- `src/config_store.*` — reads the user-provided OAuth client id/secret
+  and Reolink camera credentials, and persists the refresh token, under
   `$HOME/.config/calendar_pi/`.
 - `src/event_store.*` — mutex-protected shared list of fetched events,
   written by the background sync thread and snapshotted once per frame by
@@ -47,27 +52,45 @@ Wi-Fi, the works).
 - `src/oauth_refresh.*` — `grant_type=refresh_token` token exchange, via
   libcurl. (Google's OAuth device-authorization flow was tried first but
   doesn't support Calendar API scopes at all — see
-  `docs/GOOGLE_CALENDAR_SETUP.md`.)
+  `docs/GOOGLE_CALENDAR_SETUP.md`.) Shared by both the calendar and tasks
+  sync threads.
 - `src/gcal_client.*` — fetches and parses `events.list` from the Google
   Calendar API (vendored `third_party/cJSON` for parsing).
 - `src/gcal_sync.*` — background thread that waits for a refresh token to
   appear, then re-syncs events every 15 minutes.
+- `src/task_store.*`, `src/gtasks_client.*`, `src/gtasks_sync.*`,
+  `src/todo_view.*` — the to-do pane's equivalents of the four modules
+  above: fetches the default Google Tasks list, on its own independent
+  15-minute sync thread, reusing the same OAuth client/token.
+- `src/camera_store.*`, `src/reolink_client.*`, `src/reolink_sync.*`,
+  `src/camera_view.*` — the camera pane: a background thread polls a JPEG
+  snapshot from the Reolink camera every 2 seconds (vendored
+  `third_party/stb_image` for JPEG decoding), and the render loop uploads
+  each new frame to a GL texture, drawn aspect-fit within the pane.
 
-## Google Calendar sync
+## Google Calendar and Tasks sync
 
-The calendar is populated live from your Google Calendar's primary
-calendar (read-only). Setup is covered in `docs/GOOGLE_CALENDAR_SETUP.md`
-— do that first. In short: a one-time Google Cloud Console configuration,
-then a one-time authorization step you run on your own computer
-(`tools/authorize_gcal.py`, needs Python 3, opens a browser) that produces
-a refresh token you copy to the Pi. The Pi never needs a browser or
-credentials of its own beyond that copied token.
+The calendar pane is populated live from your Google Calendar's primary
+calendar (read-only); the to-do pane from your default Google Tasks list
+(read-only). Both share one OAuth client/token. Setup is covered in
+`docs/GOOGLE_CALENDAR_SETUP.md` — do that first. In short: a one-time
+Google Cloud Console configuration, then a one-time authorization step
+you run on your own computer (`tools/authorize_gcal.py`, needs Python 3,
+opens a browser) that produces a refresh token you copy to the Pi. The Pi
+never needs a browser or credentials of its own beyond that copied token.
 
-Once configured, it syncs automatically every 15 minutes; if the network
-drops or a sync fails, it keeps showing the last successfully fetched
-events with a small "OFFLINE" footer rather than going blank. Until the
-token is in place, the Pi shows a static "not yet authorized" screen
-instead of the calendar.
+Once configured, each pane syncs independently every 15 minutes; if the
+network drops or a sync fails, it keeps showing the last successfully
+fetched data with a small "OFFLINE" footer rather than going blank. Until
+the token is in place, each pane shows its own "not yet authorized"
+message instead of live data.
+
+## Reolink camera
+
+The camera pane polls a JPEG snapshot from a Reolink camera on your local
+network every 2 seconds — see `docs/REOLINK_SETUP.md` for setup. No cloud
+account or internet access is needed for this pane, just LAN connectivity
+to the camera.
 
 This targets the modern Mesa `vc4-kms-v3d` driver stack that Raspberry Pi OS
 Bullseye and newer use by default. Confirm it's active:
@@ -158,3 +181,17 @@ gcc -std=c11 -Wall -Wextra -o /tmp/test_calendar tests/test_calendar_model.c src
   of how far you've navigated.
 - A multi-day timed event (one that starts before midnight and continues
   into the next day) is drawn only in its start day's column.
+- The camera pane shows periodically-polled still snapshots, not real
+  video — the Pi Zero W's single ARM11 core has no realistic path to
+  real-time H.264/RTSP decode inside this bare-metal renderer. See
+  `docs/REOLINK_SETUP.md`.
+- Reolink firmware/models that require session-token login (rather than
+  direct `user=`/`password=` query params on the snapshot command) aren't
+  supported.
+- The to-do pane only shows the default Google Tasks list, and only
+  incomplete tasks (up to 100 fetched per sync); it's read-only, with no
+  on-screen way to add/check off items.
+- Anyone who set up Calendar sync before the to-do pane existed needs to
+  re-authorize once (delete the token, rerun `tools/authorize_gcal.py`)
+  to grant the added Tasks scope — see the Troubleshooting section of
+  `docs/GOOGLE_CALENDAR_SETUP.md`.

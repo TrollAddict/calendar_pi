@@ -198,13 +198,14 @@ This links successfully and produces a valid armhf ELF, but it still
 crashes with `SIGILL` on the actual board — see the toolchain file's header
 comment.
 
-## 5. Connecting Google Calendar
+## 5. Connecting Google Calendar and Tasks
 
-The app pulls your primary Google Calendar's events over the network. See
-`docs/GOOGLE_CALENDAR_SETUP.md` for the full setup: a one-time Google
-Cloud Console configuration, then a one-time authorization step run **on
-your dev machine** (`tools/authorize_gcal.py` — needs a real browser,
-which the Pi doesn't have), which produces a refresh token. Drop the
+The app pulls your primary Google Calendar's events and default Google
+Tasks list over the network. See `docs/GOOGLE_CALENDAR_SETUP.md` for the
+full setup: a one-time Google Cloud Console configuration, then a
+one-time authorization step run **on your dev machine**
+(`tools/authorize_gcal.py` — needs a real browser, which the Pi doesn't
+have), which produces a refresh token scoped for both APIs. Drop the
 `client_id`/`client_secret` into `~/.config/calendar_pi/client.conf` and
 that refresh token into `~/.config/calendar_pi/token` (mode `0600`) on the
 Pi — both are plain files, easiest to place via the same `rsync`/`scp`
@@ -214,12 +215,23 @@ Unlike the OS-level headless setup above, there's no on-device approval
 step to watch for here — authorization happens entirely on your dev
 machine before you ever touch the Pi. If you do run the binary before
 those two files are in place (e.g. testing the build before finishing
-Google setup), the physical display just shows a static "not yet
-authorized" screen in place of the calendar rather than the live view;
-once both files exist, a restart (or the background sync thread noticing
-the token file, checked every few seconds) picks it up automatically.
+Google setup), the physical display just shows each pane's own static
+"not yet authorized" message rather than live data; once both files
+exist, a restart (or the background sync threads noticing the token
+file, checked every few seconds) picks it up automatically.
 
-## 6. Running persistently on boot
+## 6. Connecting the Reolink camera
+
+The camera pane polls a JPEG snapshot from a Reolink camera on your local
+network — see `docs/REOLINK_SETUP.md` for the full setup. Drop
+`host`/`user`/`password` into `~/.config/calendar_pi/camera.conf` (mode
+`0600`) on the Pi, the same way as the calendar config above. This is
+independent of the Google Calendar/Tasks setup — no Google account or
+internet access involved, just LAN connectivity from the Pi to the
+camera. Without this file in place, the camera pane just shows "CAMERA
+NOT CONFIGURED" rather than failing to start.
+
+## 7. Running persistently on boot
 
 The app detects whether it has a controlling terminal. Run interactively
 over SSH and you get full navigation; run with no terminal attached (e.g.
