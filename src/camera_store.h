@@ -3,11 +3,15 @@
 
 #include <pthread.h>
 
-/* Defensive cap on decoded frame size -- see reolink_client.c. Keeps the
- * scratch buffer camera_view.c allocates once bounded (~6MB at this cap),
- * comfortably inside a Pi Zero W's 512MB RAM. */
-#define CAMERA_MAX_W 1920
-#define CAMERA_MAX_H 1080
+/* Defensive cap on decoded frame size -- see reolink_client.c. Sized to
+ * this project's actual camera's full main-stream resolution (2560x1920,
+ * ~5MP -- some Reolink models don't expose a way to configure a lower
+ * stream resolution). Keeps the scratch buffer camera_view.c allocates
+ * once bounded (~14.7MB at this cap), still comfortably inside a Pi Zero
+ * W's 512MB RAM; the polling interval (see reolink_sync.c) is kept slow
+ * enough that decoding a frame this large every poll isn't a problem. */
+#define CAMERA_MAX_W 2560
+#define CAMERA_MAX_H 1920
 
 typedef struct {
     pthread_mutex_t lock;

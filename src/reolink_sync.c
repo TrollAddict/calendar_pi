@@ -6,15 +6,20 @@
 #include <string.h>
 #include <stdio.h>
 
-#define POLL_INTERVAL_SEC 2
+/* Kept well above a couple of seconds: this project's camera has no way
+ * to configure a lower main-stream resolution, so every poll decodes a
+ * full ~5MP JPEG (see camera_store.h's CAMERA_MAX_W/H) -- fine on a Pi
+ * Zero W's single ARM11 core as an occasional cost, not as something to
+ * repeat every couple of seconds. */
+#define POLL_INTERVAL_SEC 30
 #define CONFIG_MISSING_POLL_SEC 5 /* how often to check whether camera.conf has been dropped in place */
 
 /* After a few consecutive failures, back off hard rather than continuing
  * to poll every POLL_INTERVAL_SEC. This matters more here than it would
  * for a plain connectivity blip: Reolink cameras have an anti-brute-force
  * login lockout (a handful of failed attempts locks logins out for
- * several minutes), so hammering a failing login every 2 seconds doesn't
- * just waste effort -- it actively re-triggers/extends that lockout. */
+ * several minutes), so hammering a failing login doesn't just waste
+ * effort -- it actively re-triggers/extends that lockout. */
 #define FAILURE_BACKOFF_SEC 300
 #define FAILURE_BACKOFF_STREAK 2
 

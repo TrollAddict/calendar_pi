@@ -63,10 +63,11 @@ first place (SD card pre-seeding, Wi-Fi, the works).
   above: fetches the default Google Tasks list, on its own independent
   15-minute sync thread, reusing the same OAuth client/token.
 - `src/camera_store.*`, `src/reolink_client.*`, `src/reolink_sync.*`,
-  `src/camera_view.*` — the camera pane: a background thread polls a JPEG
-  snapshot from the Reolink camera every 2 seconds (vendored
-  `third_party/stb_image` for JPEG decoding), and the render loop uploads
-  each new frame to a GL texture, drawn aspect-fit within the pane.
+  `src/camera_view.*` — the camera pane: a background thread logs in via
+  the camera's session-token API and polls a JPEG snapshot on an interval
+  (vendored `third_party/stb_image` for JPEG decoding), and the render
+  loop uploads each new frame to a GL texture, drawn aspect-fit within
+  the pane.
 
 ## Google Calendar and Tasks sync
 
@@ -88,9 +89,9 @@ message instead of live data.
 ## Reolink camera
 
 The camera pane polls a JPEG snapshot from a Reolink camera on your local
-network every 2 seconds — see `docs/REOLINK_SETUP.md` for setup. No cloud
-account or internet access is needed for this pane, just LAN connectivity
-to the camera.
+network on a slow interval (30s by default) — see `docs/REOLINK_SETUP.md`
+for setup. No cloud account or internet access is needed for this pane,
+just LAN connectivity to the camera.
 
 This targets the modern Mesa `vc4-kms-v3d` driver stack that Raspberry Pi OS
 Bullseye and newer use by default. Confirm it's active:
