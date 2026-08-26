@@ -11,6 +11,7 @@ typedef struct {
     unsigned long last_version;
     int has_frame;
     int frame_w, frame_h;
+    int max_texture_size; /* GL_MAX_TEXTURE_SIZE, queried once at init */
 } camera_view_t;
 
 /* Creates the GL texture the camera pane draws into -- must be called

@@ -28,6 +28,8 @@ void camera_view_init(camera_view_t *cv) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &cv->max_texture_size);
 }
 
 void camera_view_destroy(camera_view_t *cv) {
@@ -48,11 +50,22 @@ void draw_camera(renderer_t *rnd, camera_view_t *cv, int region_w, int region_h,
 
     int fw = 0, fh = 0;
     if (camera_store_snapshot_if_new(store, &cv->last_version, cv->scratch, &fw, &fh)) {
-        glBindTexture(GL_TEXTURE_2D, cv->texture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, fw, fh, 0, GL_RGB, GL_UNSIGNED_BYTE, cv->scratch);
-        cv->frame_w = fw;
-        cv->frame_h = fh;
-        cv->has_frame = 1;
+        if (fw > cv->max_texture_size || fh > cv->max_texture_size) {
+            /* This GPU can't hold a texture this large -- glTexImage2D
+             * would otherwise fail with no visible symptom beyond a
+             * black pane. Skip the upload and say so loudly instead;
+             * see docs/REOLINK_SETUP.md. */
+            fprintf(stderr,
+                    "camera_view: frame %dx%d exceeds this GPU's GL_MAX_TEXTURE_SIZE (%d) -- "
+                    "skipping upload, camera pane will stay blank (see docs/REOLINK_SETUP.md)\n",
+                    fw, fh, cv->max_texture_size);
+        } else {
+            glBindTexture(GL_TEXTURE_2D, cv->texture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, fw, fh, 0, GL_RGB, GL_UNSIGNED_BYTE, cv->scratch);
+            cv->frame_w = fw;
+            cv->frame_h = fh;
+            cv->has_frame = 1;
+        }
     }
 
     if (!cv->has_frame) {
