@@ -9,6 +9,15 @@
 #define POLL_INTERVAL_SEC 2
 #define CONFIG_MISSING_POLL_SEC 5 /* how often to check whether camera.conf has been dropped in place */
 
+/* After a few consecutive failures, back off hard rather than continuing
+ * to poll every POLL_INTERVAL_SEC. This matters more here than it would
+ * for a plain connectivity blip: Reolink cameras have an anti-brute-force
+ * login lockout (a handful of failed attempts locks logins out for
+ * several minutes), so hammering a failing login every 2 seconds doesn't
+ * just waste effort -- it actively re-triggers/extends that lockout. */
+#define FAILURE_BACKOFF_SEC 300
+#define FAILURE_BACKOFF_STREAK 2
+
 static void set_status(reolink_sync_t *sync, reolink_sync_status_t status) {
     pthread_mutex_lock(&sync->lock);
     sync->status = status;
@@ -42,6 +51,7 @@ static void *sync_thread_main(void *arg) {
         if (interruptible_wait(sync, CONFIG_MISSING_POLL_SEC)) return NULL;
     }
 
+    int consecutive_failures = 0;
     while (!sync->stop) {
         unsigned char *rgb = NULL;
         int w = 0, h = 0;
@@ -56,8 +66,11 @@ static void *sync_thread_main(void *arg) {
 
         camera_store_set_fetch_status(sync->store, ok);
         set_status(sync, ok ? REOLINK_STATE_CONNECTED : REOLINK_STATE_OFFLINE);
+        consecutive_failures = ok ? 0 : consecutive_failures + 1;
 
-        if (interruptible_wait(sync, POLL_INTERVAL_SEC)) return NULL;
+        int sleep_sec = (!ok && consecutive_failures > FAILURE_BACKOFF_STREAK) ? FAILURE_BACKOFF_SEC
+                                                                                : POLL_INTERVAL_SEC;
+        if (interruptible_wait(sync, sleep_sec)) return NULL;
     }
     return NULL;
 }

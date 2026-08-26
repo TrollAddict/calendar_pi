@@ -68,10 +68,22 @@ last good frame) rather than attempting to downscale them.
 - **"CAMERA NOT CONFIGURED"**: `camera.conf` is missing or malformed —
   re-check step 3 (all three of `host`/`user`/`password` are required).
 - **"CONNECTING TO CAMERA..." that never clears**: check `journalctl` (if
-  run under systemd) or the terminal output for
-  `reolink_sync: snapshot fetch failed` — usually a wrong IP/credentials,
-  the camera being on a different network/VLAN than the Pi, or (see
-  below) a firmware that doesn't accept this snapshot method.
+  run under systemd) or the terminal output for `reolink_client:` lines,
+  which log the actual failure reason — a connection error, an HTTP
+  status, or (if the camera responded but with something other than an
+  image) a preview of what it actually sent back. Usually a wrong
+  IP/credentials, HTTP disabled in the camera's server settings (Reolink
+  app → Device Settings → Network → Advanced), the camera being on a
+  different network/VLAN than the Pi, or (see below) a firmware that
+  doesn't accept this snapshot method.
+- **`"Login has been locked, please try again later!"`** in that preview:
+  your camera's anti-brute-force lockout tripped, almost certainly from
+  wrong credentials in `camera.conf`. The sync thread backs off to a
+  5-minute retry interval after a couple of consecutive failures
+  specifically to avoid re-triggering or extending this lockout — but you
+  still need to wait out the camera's own cooldown (the response includes
+  an `unlock_time`) before retesting. Double-check `user`/`password` in
+  `camera.conf` before the next attempt.
 - **"OFFLINE - LAST FRAME SHOWN"**: was connecting fine but the most
   recent poll failed — usually transient (Wi-Fi hiccup, camera reboot);
   it recovers on its own once the next poll succeeds.
