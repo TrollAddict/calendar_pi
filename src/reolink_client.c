@@ -49,17 +49,28 @@ int reolink_fetch_snapshot(const camera_config_t *cfg, unsigned char **out_rgb, 
     curl_free(esc_pass);
 
     dyn_body_t body = {0};
+    char err_buf[CURL_ERROR_SIZE] = {0};
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, HTTP_TIMEOUT_SEC);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, err_buf);
 
     CURLcode res = curl_easy_perform(curl);
     long http_status = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
     curl_easy_cleanup(curl);
 
-    if (res != CURLE_OK || http_status != 200 || !body.buf) {
+    /* Logs the host but never the URL itself -- it carries the camera
+     * password as a query param. */
+    if (res != CURLE_OK) {
+        fprintf(stderr, "reolink_client: request to %s failed: %s (%s)\n", cfg->host, curl_easy_strerror(res),
+                err_buf);
+        free(body.buf);
+        return -1;
+    }
+    if (http_status != 200 || !body.buf) {
+        fprintf(stderr, "reolink_client: %s returned HTTP %ld\n", cfg->host, http_status);
         free(body.buf);
         return -1;
     }
