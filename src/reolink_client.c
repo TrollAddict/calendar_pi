@@ -80,8 +80,26 @@ int reolink_fetch_snapshot(const camera_config_t *cfg, unsigned char **out_rgb, 
      * otherwise pay for a full width*height decode every poll only to
      * have the result thrown away below. */
     int info_w = 0, info_h = 0, info_comp = 0;
-    if (!stbi_info_from_memory(body.buf, (int)body.len, &info_w, &info_h, &info_comp) ||
-        info_w > CAMERA_MAX_W || info_h > CAMERA_MAX_H) {
+    if (!stbi_info_from_memory(body.buf, (int)body.len, &info_w, &info_h, &info_comp)) {
+        /* Not an image at all -- most likely an HTML login page or a JSON
+         * error body (e.g. a camera that rejects the direct user=/
+         * password= query-param login and wants a session-token login
+         * instead; see docs/REOLINK_SETUP.md). Log a safe printable
+         * preview of what actually came back so this is diagnosable from
+         * journalctl alone. */
+        char preview[121];
+        size_t n = body.len < sizeof(preview) - 1 ? body.len : sizeof(preview) - 1;
+        memcpy(preview, body.buf, n);
+        preview[n] = '\0';
+        for (size_t i = 0; i < n; i++) {
+            if (preview[i] < 32 || preview[i] > 126) preview[i] = '.';
+        }
+        fprintf(stderr, "reolink_client: %s's response (%zu bytes) isn't a decodable image -- starts: %s\n",
+                cfg->host, body.len, preview);
+        free(body.buf);
+        return -1;
+    }
+    if (info_w > CAMERA_MAX_W || info_h > CAMERA_MAX_H) {
         fprintf(stderr,
                 "reolink_client: snapshot is %dx%d, above the %dx%d cap -- configure a lower "
                 "resolution on the camera (see docs/REOLINK_SETUP.md)\n",
