@@ -2,6 +2,7 @@
 #include "reolink_client.h"
 #include "camera_store.h"
 #include "stb_image.h"
+#include <cJSON.h>
 #include <curl/curl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,6 +10,21 @@
 #include <time.h>
 
 #define HTTP_TIMEOUT_SEC 10L
+#define TOKEN_CAP 128
+
+/* Cached session token, logged in once and reused across polls until it's
+ * near expiry or a request fails (which invalidates it so the next
+ * attempt re-logs-in). Module-level state is safe here: only
+ * reolink_sync's single background thread ever calls into this file.
+ *
+ * Some Reolink firmware/models reject the simpler "just put user=/
+ * password= on every command" approach outright (confirmed against real
+ * hardware -- login via the web UI works, a brand-new user still gets
+ * "login failed" via that method), so this always goes through the
+ * documented cmd=Login -> token flow instead of trying the shortcut
+ * first. */
+static char g_token[TOKEN_CAP] = "";
+static time_t g_token_expiry = 0;
 
 typedef struct {
     unsigned char *buf;
@@ -31,22 +47,111 @@ static size_t write_cb(void *contents, size_t size, size_t nmemb, void *userp) {
     return add;
 }
 
-int reolink_fetch_snapshot(const camera_config_t *cfg, unsigned char **out_rgb, int *out_w, int *out_h) {
+/* POSTs cmd=Login with a JSON body ({"User":{"userName":...,"password":...}}),
+ * caching the returned session token (and its lease time) into
+ * g_token/g_token_expiry on success. Returns 0 on success. */
+static int reolink_login(const camera_config_t *cfg) {
     CURL *curl = curl_easy_init();
     if (!curl) return -1;
 
-    char *esc_user = curl_easy_escape(curl, cfg->user, 0);
-    char *esc_pass = curl_easy_escape(curl, cfg->password, 0);
+    cJSON *user = cJSON_CreateObject();
+    cJSON_AddStringToObject(user, "userName", cfg->user);
+    cJSON_AddStringToObject(user, "password", cfg->password);
+    cJSON *param = cJSON_CreateObject();
+    cJSON_AddItemToObject(param, "User", user);
+    cJSON *cmd_obj = cJSON_CreateObject();
+    cJSON_AddStringToObject(cmd_obj, "cmd", "Login");
+    cJSON_AddNumberToObject(cmd_obj, "action", 0);
+    cJSON_AddItemToObject(cmd_obj, "param", param);
+    cJSON *root = cJSON_CreateArray();
+    cJSON_AddItemToArray(root, cmd_obj);
 
-    /* host/user/password can each be up to CONFIG_STR_CAP-1 (255) bytes
-     * (config_store.h), and curl_easy_escape can expand user/password up
-     * to 3x (percent-encoding); sized generously so long/special-character
-     * credentials can't silently truncate the request. */
-    char url[2048];
-    snprintf(url, sizeof(url), "http://%s/cgi-bin/api.cgi?cmd=Snap&channel=%d&rs=%ld&user=%s&password=%s",
-             cfg->host, cfg->channel, (long)time(NULL), esc_user ? esc_user : "", esc_pass ? esc_pass : "");
-    curl_free(esc_user);
-    curl_free(esc_pass);
+    char *json_body = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!json_body) {
+        curl_easy_cleanup(curl);
+        return -1;
+    }
+
+    char url[512];
+    snprintf(url, sizeof(url), "http://%s/cgi-bin/api.cgi?cmd=Login", cfg->host);
+
+    struct curl_slist *headers = curl_slist_append(NULL, "Content-Type: application/json");
+
+    dyn_body_t body = {0};
+    char err_buf[CURL_ERROR_SIZE] = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_body);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, HTTP_TIMEOUT_SEC);
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, err_buf);
+
+    CURLcode res = curl_easy_perform(curl);
+    long http_status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    cJSON_free(json_body);
+
+    if (res != CURLE_OK) {
+        fprintf(stderr, "reolink_client: login request to %s failed: %s (%s)\n", cfg->host,
+                curl_easy_strerror(res), err_buf);
+        free(body.buf);
+        return -1;
+    }
+    if (http_status != 200 || !body.buf) {
+        fprintf(stderr, "reolink_client: login to %s returned HTTP %ld\n", cfg->host, http_status);
+        free(body.buf);
+        return -1;
+    }
+
+    cJSON *json = cJSON_Parse((const char *)body.buf);
+    free(body.buf);
+    if (!json) return -1;
+
+    cJSON *first = cJSON_GetArrayItem(json, 0);
+    cJSON *value = first ? cJSON_GetObjectItem(first, "value") : NULL;
+    cJSON *token_obj = value ? cJSON_GetObjectItem(value, "Token") : NULL;
+    cJSON *name = token_obj ? cJSON_GetObjectItem(token_obj, "name") : NULL;
+    cJSON *lease = token_obj ? cJSON_GetObjectItem(token_obj, "leaseTime") : NULL;
+
+    int ok = cJSON_IsString(name) && name->valuestring[0];
+    if (ok) {
+        snprintf(g_token, sizeof(g_token), "%s", name->valuestring);
+        int lease_sec = cJSON_IsNumber(lease) ? lease->valueint : 3600;
+        /* Refresh a bit ahead of the camera's own expiry rather than
+         * racing it. */
+        g_token_expiry = time(NULL) + (lease_sec > 60 ? lease_sec - 60 : lease_sec);
+    } else {
+        cJSON *error = first ? cJSON_GetObjectItem(first, "error") : NULL;
+        cJSON *detail = error ? cJSON_GetObjectItem(error, "detail") : NULL;
+        fprintf(stderr, "reolink_client: login to %s rejected: %s\n", cfg->host,
+                cJSON_IsString(detail) ? detail->valuestring : "unknown reason");
+    }
+    cJSON_Delete(json);
+    return ok ? 0 : -1;
+}
+
+int reolink_fetch_snapshot(const camera_config_t *cfg, unsigned char **out_rgb, int *out_w, int *out_h) {
+    if (!g_token[0] || time(NULL) >= g_token_expiry) {
+        if (reolink_login(cfg) != 0) {
+            g_token[0] = '\0';
+            return -1;
+        }
+    }
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    char *esc_token = curl_easy_escape(curl, g_token, 0);
+
+    char url[1024];
+    snprintf(url, sizeof(url), "http://%s/cgi-bin/api.cgi?cmd=Snap&channel=%d&rs=%ld&token=%s", cfg->host,
+             cfg->channel, (long)time(NULL), esc_token ? esc_token : "");
+    curl_free(esc_token);
 
     dyn_body_t body = {0};
     char err_buf[CURL_ERROR_SIZE] = {0};
@@ -61,8 +166,9 @@ int reolink_fetch_snapshot(const camera_config_t *cfg, unsigned char **out_rgb, 
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
     curl_easy_cleanup(curl);
 
-    /* Logs the host but never the URL itself -- it carries the camera
-     * password as a query param. */
+    /* Logs the host but never the URL itself -- it carries the session
+     * token, which is nearly as sensitive as the password it stands in
+     * for. */
     if (res != CURLE_OK) {
         fprintf(stderr, "reolink_client: request to %s failed: %s (%s)\n", cfg->host, curl_easy_strerror(res),
                 err_buf);
@@ -81,12 +187,13 @@ int reolink_fetch_snapshot(const camera_config_t *cfg, unsigned char **out_rgb, 
      * have the result thrown away below. */
     int info_w = 0, info_h = 0, info_comp = 0;
     if (!stbi_info_from_memory(body.buf, (int)body.len, &info_w, &info_h, &info_comp)) {
-        /* Not an image at all -- most likely an HTML login page or a JSON
-         * error body (e.g. a camera that rejects the direct user=/
-         * password= query-param login and wants a session-token login
-         * instead; see docs/REOLINK_SETUP.md). Log a safe printable
-         * preview of what actually came back so this is diagnosable from
-         * journalctl alone. */
+        /* Not an image at all -- most likely a JSON error body, e.g. the
+         * token expired/was invalidated server-side between polls.
+         * Invalidate the cached token so the next poll re-logs-in rather
+         * than repeating the same failure indefinitely. Log a safe
+         * printable preview of what actually came back so this is
+         * diagnosable from journalctl alone. */
+        g_token[0] = '\0';
         char preview[121];
         size_t n = body.len < sizeof(preview) - 1 ? body.len : sizeof(preview) - 1;
         memcpy(preview, body.buf, n);

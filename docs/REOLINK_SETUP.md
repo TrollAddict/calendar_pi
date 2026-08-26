@@ -16,7 +16,19 @@ after a reboot changes its address.
 
 The default admin username is usually `admin`; the password is whatever
 you set the first time you configured the camera (in the Reolink app or
-web UI). This project only needs read-only snapshot access.
+web UI). This project only needs read-only snapshot access. Under the
+hood it logs in via the camera's `cmd=Login` API to get a short-lived
+session token, then uses that token for each snapshot request (rather
+than sending the raw password on every poll) -- the same flow the
+official Reolink app itself uses, so it doesn't depend on the camera
+supporting the simpler-but-less-widely-supported "just put user=/
+password= on every request" shortcut.
+
+**Make sure HTTP is enabled** in the camera's server settings (Reolink
+app → Device Settings → Network → Advanced → Server Settings) -- it's
+disabled by default on some models, and if it is, nothing is listening on
+port 80 at all, which shows up as a connection failure, not an auth
+failure.
 
 ## 3. Configure the Pi
 
@@ -84,12 +96,20 @@ last good frame) rather than attempting to downscale them.
   still need to wait out the camera's own cooldown (the response includes
   an `unlock_time`) before retesting. Double-check `user`/`password` in
   `camera.conf` before the next attempt.
+- **`"login failed"`** in that preview, even with credentials you've
+  confirmed work in the camera's own web UI: double-check for a stray
+  trailing space/newline pasted into `camera.conf`, and that `user`
+  matches exactly (case-sensitive) — if you're testing manually with
+  `curl` rather than through the app, see the note on escaping special
+  characters below.
 - **"OFFLINE - LAST FRAME SHOWN"**: was connecting fine but the most
-  recent poll failed — usually transient (Wi-Fi hiccup, camera reboot);
-  it recovers on its own once the next poll succeeds.
-- **Some Reolink firmware/models don't accept `user=`/`password=` query
-  parameters directly** on the snapshot command and instead require a
-  session token obtained via a separate `cmd=Login` call first. This
-  project doesn't implement that login flow (known limitation, kept out
-  of scope here) — if your camera doesn't work with the direct
-  credentials approach, this feature currently won't work with it.
+  recent poll failed — usually transient (Wi-Fi hiccup, camera reboot,
+  the cached session token expiring right as a poll fires); it recovers
+  on its own once the next poll succeeds (a failed poll invalidates the
+  cached token, so the next one re-logs-in automatically).
+- **Testing snapshot/login requests manually with `curl`**: if your
+  password contains shell-special characters (`!`, `#`, `&`, spaces,
+  etc.), don't interpolate it into a URL string by hand — both the shell
+  and the URL query string can mangle it silently. Use
+  `curl -G --data-urlencode 'password=...'` (single-quoted) instead,
+  which handles both shell- and URL-escaping correctly.

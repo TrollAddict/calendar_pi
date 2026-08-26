@@ -185,9 +185,10 @@ gcc -std=c11 -Wall -Wextra -o /tmp/test_calendar tests/test_calendar_model.c src
   video — the Pi Zero W's single ARM11 core has no realistic path to
   real-time H.264/RTSP decode inside this bare-metal renderer. See
   `docs/REOLINK_SETUP.md`.
-- Reolink firmware/models that require session-token login (rather than
-  direct `user=`/`password=` query params on the snapshot command) aren't
-  supported.
+- Camera auth always goes through Reolink's `cmd=Login` session-token
+  flow (the same one the official app uses) rather than the simpler-but
+  less-widely-supported direct `user=`/`password=` query-param shortcut
+  some firmware accepts on other commands.
 - The to-do pane only shows the default Google Tasks list, and only
   incomplete tasks (up to 100 fetched per sync); it's read-only, with no
   on-screen way to add/check off items.
