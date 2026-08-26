@@ -7,9 +7,9 @@
  * this project's actual camera's full main-stream resolution (2560x1920,
  * ~5MP -- some Reolink models don't expose a way to configure a lower
  * stream resolution). Keeps the scratch buffer camera_view.c allocates
- * once bounded (~14.7MB at this cap), still comfortably inside a Pi Zero
- * W's 512MB RAM; the polling interval (see reolink_sync.c) is kept slow
- * enough that decoding a frame this large every poll isn't a problem. */
+ * once bounded (~14.7MB at this cap); also needs to stay within the
+ * display GPU's GL_MAX_TEXTURE_SIZE (see camera_view.c, which logs and
+ * skips any frame over that limit rather than failing silently). */
 #define CAMERA_MAX_W 2560
 #define CAMERA_MAX_H 1920
 

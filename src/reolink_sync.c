@@ -6,12 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 
-/* Kept well above a couple of seconds: this project's camera has no way
- * to configure a lower main-stream resolution, so every poll decodes a
- * full ~5MP JPEG (see camera_store.h's CAMERA_MAX_W/H) -- fine on a Pi
- * Zero W's single ARM11 core as an occasional cost, not as something to
- * repeat every couple of seconds. */
-#define POLL_INTERVAL_SEC 30
+#define POLL_INTERVAL_SEC 2
 #define CONFIG_MISSING_POLL_SEC 5 /* how often to check whether camera.conf has been dropped in place */
 
 /* After a few consecutive failures, back off hard rather than continuing

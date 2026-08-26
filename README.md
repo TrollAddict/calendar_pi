@@ -1,6 +1,6 @@
 # calendar_pi
 
-A full-screen dashboard for a Raspberry Pi Zero W, rendered with OpenGL ES
+A full-screen dashboard for a Raspberry Pi 4, rendered with OpenGL ES
 2.0 directly to the HDMI output via DRM/KMS + GBM + EGL — no X11/Wayland
 desktop required. The screen is split into three panes: a live Google
 Calendar week view across the top, a Google Tasks to-do list in the
@@ -19,8 +19,8 @@ Run with no controlling terminal attached (e.g. launched by systemd at
 boot) and it doesn't exit — it falls back to a passive, read-only display
 instead (still fully synced with Google Calendar/Tasks and polling the
 camera). See `docs/DEPLOYMENT.md` for running it that way persistently,
-plus the full story on getting a headless Zero W to this point in the
-first place (SD card pre-seeding, Wi-Fi, the works).
+plus the full story on getting a headless Pi to this point in the first
+place (SD card pre-seeding, Wi-Fi, the works).
 
 ## How it's built
 
@@ -89,9 +89,9 @@ message instead of live data.
 ## Reolink camera
 
 The camera pane polls a JPEG snapshot from a Reolink camera on your local
-network on a slow interval (30s by default) — see `docs/REOLINK_SETUP.md`
-for setup. No cloud account or internet access is needed for this pane,
-just LAN connectivity to the camera.
+network every 2 seconds — see `docs/REOLINK_SETUP.md` for setup. No cloud
+account or internet access is needed for this pane, just LAN connectivity
+to the camera.
 
 This targets the modern Mesa `vc4-kms-v3d` driver stack that Raspberry Pi OS
 Bullseye and newer use by default. Confirm it's active:
@@ -100,14 +100,11 @@ Bullseye and newer use by default. Confirm it's active:
 grep vc4 /boot/firmware/config.txt   # expect: dtoverlay=vc4-kms-v3d
 ```
 
-## Building — natively on the Pi (the path that actually works)
+## Building — natively on the Pi
 
-Cross-compiling from another machine looked appealing but hit real ARMv6
-toolchain incompatibilities that don't have a clean fix — see the warning
-at the top of `cmake/toolchain-rpi.cmake` if curious, or
-`docs/DEPLOYMENT.md` for the full story. Building directly on the Pi
-sidesteps the whole problem, and the project is small enough that a single
-ARM11 core still builds it in a couple of minutes.
+Building directly on the Pi avoids any cross-compile toolchain concerns
+entirely, and the Pi 4's quad-core Cortex-A72 builds this small project
+in well under a minute.
 
 On the Pi:
 ```sh
@@ -142,16 +139,17 @@ Notes:
   that come with it) and the full headless SD-card setup story, see
   `docs/DEPLOYMENT.md`.
 
-## Cross-compiling (unresolved — for reference only)
+## Cross-compiling (historical note — was for a Pi Zero W target)
 
-`cmake/toolchain-rpi.cmake` exists and gets partway there (fixes a
-crt1.o/Scrt1.o sysroot mismatch), but binaries built with it still crash
-with `SIGILL` on real hardware from a second, unfixed issue in GCC's own
-bundled startup objects. Don't use it expecting a working binary today —
-see the comment block at the top of that file for what was tried and why
-it's parked. If you want to attempt it anyway (e.g. as a starting point for
-finding a real fix), `docs/DEPLOYMENT.md` has the sysroot-pulling steps
-that were used to get this far.
+This project originally targeted a Raspberry Pi Zero W. `cmake/toolchain-rpi.cmake`
+documents a real, unresolved ARMv6-specific toolchain blocker hit while
+cross-compiling for that board (its ARM1176 core can't execute the
+Thumb-2 startup objects GCC bundles for armhf) — see the comment block
+at the top of that file for the full story. That blocker is specific to
+the Zero W's ARMv6 core and doesn't apply to the Pi 4's ARMv8 Cortex-A72,
+but cross-compiling for the Pi 4 hasn't been set up or tested in this
+project — native builds are fast enough on its quad-core CPU that there
+hasn't been a need to.
 
 ## Running the native date-math test
 
@@ -183,9 +181,12 @@ gcc -std=c11 -Wall -Wextra -o /tmp/test_calendar tests/test_calendar_model.c src
 - A multi-day timed event (one that starts before midnight and continues
   into the next day) is drawn only in its start day's column.
 - The camera pane shows periodically-polled still snapshots, not real
-  video — the Pi Zero W's single ARM11 core has no realistic path to
-  real-time H.264/RTSP decode inside this bare-metal renderer. See
-  `docs/REOLINK_SETUP.md`.
+  video. The Pi 4 does have real hardware H.264 decode (unlike the Zero W
+  this project originally targeted, which ruled real video out entirely),
+  so real-time RTSP video is plausible future work here, but it would
+  need an actual RTSP client and a real dependency like GStreamer/FFmpeg
+  wired into this bare-metal renderer — a substantial addition on its
+  own, not implemented. See `docs/REOLINK_SETUP.md`.
 - Camera auth always goes through Reolink's `cmd=Login` session-token
   flow (the same one the official app uses) rather than the simpler-but
   less-widely-supported direct `user=`/`password=` query-param shortcut

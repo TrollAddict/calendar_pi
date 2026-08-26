@@ -1,7 +1,7 @@
 # Connecting your Reolink camera
 
-The bottom-right pane polls a snapshot from your Reolink camera on a slow
-interval and displays it -- a refreshing still image, not real-time video
+The bottom-right pane polls a snapshot from your Reolink camera every 2
+seconds and displays it -- a refreshing still image, not real-time video
 (see "Why not real video?" below for why). No Reolink cloud account is
 needed; the Pi talks directly to the camera over your local network.
 
@@ -60,30 +60,38 @@ trying (and failing) to connect.
 
 ## Why not real video?
 
-The Pi Zero W has a single ARM11 core with no realistic path to
-decoding real-time H.264/RTSP video inside this project's bare-metal
-DRM/GLES2 renderer. Polling a JPEG snapshot on a slow interval avoids
-that entirely -- it's not fluid video, but it's simple and reliable on
-very limited hardware.
+Real-time RTSP/H.264 video is plausible on a Pi 4 -- it has actual
+hardware video decode, unlike the Pi Zero W this project originally
+targeted (whose single ARM11 core ruled it out entirely). But it isn't
+implemented: it would mean an actual RTSP client and likely a real
+dependency like GStreamer or FFmpeg wired into this project's bare-metal
+DRM/GLES2 renderer, which this project has deliberately kept free of so
+far. Polling a JPEG snapshot is a much smaller, simpler piece of surface
+area -- not fluid video, but reliable and easy to reason about.
 
 ## Performance tip
 
-Snapshot decode time scales with the camera's configured resolution. If
-your camera lets you configure a lower main-stream resolution (Reolink
-app → Device Settings → Display → Encode), doing so — 1280x720 is a
-reasonable target — means faster decodes and headroom to poll more
-often. Not every model exposes this, though: some only offer a fixed
-main-stream resolution with no lower option. In that case, the default
-poll interval (`POLL_INTERVAL_SEC` in `src/reolink_sync.c`, 30s) is
-tuned to make an occasional full-resolution decode a non-issue rather
-than something repeated every couple of seconds.
+Snapshot decode time scales with the camera's configured resolution. A
+Pi 4's quad-core CPU handles even a full ~5MP snapshot (this project's
+own camera has no lower-resolution stream option) comfortably at the
+default 2-second poll interval (`POLL_INTERVAL_SEC` in
+`src/reolink_sync.c`). If you're running this on weaker hardware (e.g. a
+Pi Zero W) and the feed feels sluggish or CPU-bound, either lower the
+camera's main stream resolution if it offers one (Reolink app → Device
+Settings → Display → Encode — 1280x720 is a reasonable target), or raise
+`POLL_INTERVAL_SEC` so a slow decode is an occasional cost rather than
+something repeated every couple of seconds.
 
 Decoded frames above `CAMERA_MAX_W`x`CAMERA_MAX_H` (`src/camera_store.h`,
 2560x1920 by default -- sized for this project's own ~5MP camera) are
 rejected outright (logged, camera pane keeps showing the last good
-frame) rather than attempting to downscale them. If your camera's main
-stream exceeds that, raise the cap and adjust the poll interval to match
-your comfort with decode cost.
+frame) rather than attempting to downscale them. This also needs to fit
+within the display GPU's `GL_MAX_TEXTURE_SIZE` -- on a Pi Zero W's
+VideoCore IV that's only 2048px, well under a 5MP camera's native
+resolution, which is part of why this project moved off that hardware;
+the Pi 4's VideoCore VI has a much higher limit. `camera_view.c` logs
+and skips (rather than crashing or silently failing) any frame that
+exceeds either limit.
 
 ## Troubleshooting
 
