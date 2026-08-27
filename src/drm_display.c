@@ -202,12 +202,31 @@ int drm_display_init(drm_display_t *d, const char *device_path) {
         EGL_ALPHA_SIZE, 0,
         EGL_NONE
     };
-    EGLConfig config;
     EGLint num_configs = 0;
-    if (!eglChooseConfig(d->egl_display, config_attribs, &config, 1, &num_configs) || num_configs < 1) {
+    if (!eglChooseConfig(d->egl_display, config_attribs, NULL, 0, &num_configs) || num_configs < 1) {
         fprintf(stderr, "eglChooseConfig failed to find a suitable config: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
+    EGLConfig *configs = malloc((size_t)num_configs * sizeof(EGLConfig));
+    if (!eglChooseConfig(d->egl_display, config_attribs, configs, num_configs, &num_configs)) {
+        fprintf(stderr, "eglChooseConfig failed to find a suitable config: %s\n", egl_error_string(eglGetError()));
+        free(configs);
+        return -1;
+    }
+
+    /* The EGLConfig's native visual format must match the GBM surface's
+     * format (GBM_FORMAT_XRGB8888) or eglCreateWindowSurface fails with
+     * EGL_BAD_MATCH -- eglChooseConfig's other attribs don't guarantee this. */
+    EGLConfig config = configs[0];
+    for (int i = 0; i < num_configs; i++) {
+        EGLint visual_id = 0;
+        eglGetConfigAttrib(d->egl_display, configs[i], EGL_NATIVE_VISUAL_ID, &visual_id);
+        if ((uint32_t)visual_id == GBM_FORMAT_XRGB8888) {
+            config = configs[i];
+            break;
+        }
+    }
+    free(configs);
 
     EGLint context_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
     d->egl_context = eglCreateContext(d->egl_display, config, EGL_NO_CONTEXT, context_attribs);
