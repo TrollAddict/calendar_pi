@@ -70,6 +70,11 @@ void cal_add_days(cal_date_t *d, int delta) {
     jdn_to_date(jdn + delta, &d->year, &d->month, &d->day);
 }
 
+void cal_week_start(cal_date_t d, cal_date_t *out) {
+    *out = d;
+    cal_add_days(out, -cal_day_of_week(d.year, d.month, d.day));
+}
+
 void cal_add_months(int *year, int *month, int delta) {
     int m = *month - 1 + delta;
     int y = *year + m / 12;

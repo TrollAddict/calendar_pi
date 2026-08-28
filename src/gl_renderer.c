@@ -115,6 +115,7 @@ int renderer_init(renderer_t *rnd, int screen_w, int screen_h) {
 void renderer_destroy(renderer_t *rnd) {
     free(rnd->rect_verts);
     free(rnd->text_verts);
+    free(rnd->image_verts);
     font_destroy(&rnd->font);
     glDeleteTextures(1, &rnd->white_tex);
     glDeleteBuffers(1, &rnd->vbo);
@@ -124,8 +125,17 @@ void renderer_destroy(renderer_t *rnd) {
 void renderer_begin_frame(renderer_t *rnd) {
     rnd->rect_count = 0;
     rnd->text_count = 0;
+    rnd->image_count = 0;
+    rnd->image_tex = 0;
+    rnd->region_x = 0;
+    rnd->region_y = 0;
     glClearColor(0.09f, 0.10f, 0.12f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+}
+
+void renderer_set_region(renderer_t *rnd, int x, int y) {
+    rnd->region_x = x;
+    rnd->region_y = y;
 }
 
 static void push_quad(vertex_t **arr, int *count, int *cap,
@@ -148,7 +158,8 @@ static void push_quad(vertex_t **arr, int *count, int *cap,
 
 void renderer_add_rect(renderer_t *rnd, float x, float y, float w, float h,
                         float red, float g, float b, float a) {
-    push_quad(&rnd->rect_verts, &rnd->rect_count, &rnd->rect_cap, x, y, w, h, 0, 0, 0, 0, red, g, b, a);
+    push_quad(&rnd->rect_verts, &rnd->rect_count, &rnd->rect_cap, x + (float)rnd->region_x,
+              y + (float)rnd->region_y, w, h, 0, 0, 0, 0, red, g, b, a);
 }
 
 void renderer_add_rect_outline(renderer_t *rnd, float x, float y, float w, float h,
@@ -168,7 +179,7 @@ void renderer_add_text(renderer_t *rnd, float x, float y, int scale, const char 
             float gw = (float)(FONT_GLYPH_W * scale);
             float gh = (float)(FONT_GLYPH_H * scale);
             push_quad(&rnd->text_verts, &rnd->text_count, &rnd->text_cap,
-                      pen_x, y, gw, gh, u0, v0, u1, v1, red, g, b, a);
+                      pen_x + (float)rnd->region_x, y + (float)rnd->region_y, gw, gh, u0, v0, u1, v1, red, g, b, a);
         }
         pen_x += (float)font_glyph_advance(scale);
     }
@@ -178,6 +189,13 @@ void renderer_add_text_centered(renderer_t *rnd, float cx, float y, int scale, c
                                  float red, float g, float b, float a) {
     int w = font_text_width(text, scale);
     renderer_add_text(rnd, cx - (float)w / 2.0f, y, scale, text, red, g, b, a);
+}
+
+void renderer_draw_image(renderer_t *rnd, GLuint tex, float x, float y, float w, float h) {
+    rnd->image_tex = tex;
+    rnd->image_count = 0;
+    push_quad(&rnd->image_verts, &rnd->image_count, &rnd->image_cap, x + (float)rnd->region_x,
+              y + (float)rnd->region_y, w, h, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 static void draw_batch(renderer_t *rnd, vertex_t *verts, int count, GLuint tex) {
@@ -204,5 +222,6 @@ void renderer_end_frame(renderer_t *rnd) {
     glUniform2f(rnd->uniform_screen_size, (float)rnd->screen_w, (float)rnd->screen_h);
 
     draw_batch(rnd, rnd->rect_verts, rnd->rect_count, rnd->white_tex);
+    draw_batch(rnd, rnd->image_verts, rnd->image_count, rnd->image_tex);
     draw_batch(rnd, rnd->text_verts, rnd->text_count, rnd->font.texture);
 }

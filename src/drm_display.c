@@ -15,6 +15,27 @@ typedef struct {
     uint32_t fb_id;
 } fb_userdata_t;
 
+static const char *egl_error_string(EGLint err) {
+    switch (err) {
+        case EGL_SUCCESS: return "EGL_SUCCESS";
+        case EGL_NOT_INITIALIZED: return "EGL_NOT_INITIALIZED";
+        case EGL_BAD_ACCESS: return "EGL_BAD_ACCESS";
+        case EGL_BAD_ALLOC: return "EGL_BAD_ALLOC";
+        case EGL_BAD_ATTRIBUTE: return "EGL_BAD_ATTRIBUTE";
+        case EGL_BAD_CONFIG: return "EGL_BAD_CONFIG";
+        case EGL_BAD_CONTEXT: return "EGL_BAD_CONTEXT";
+        case EGL_BAD_CURRENT_SURFACE: return "EGL_BAD_CURRENT_SURFACE";
+        case EGL_BAD_DISPLAY: return "EGL_BAD_DISPLAY";
+        case EGL_BAD_MATCH: return "EGL_BAD_MATCH";
+        case EGL_BAD_NATIVE_PIXMAP: return "EGL_BAD_NATIVE_PIXMAP";
+        case EGL_BAD_NATIVE_WINDOW: return "EGL_BAD_NATIVE_WINDOW";
+        case EGL_BAD_PARAMETER: return "EGL_BAD_PARAMETER";
+        case EGL_BAD_SURFACE: return "EGL_BAD_SURFACE";
+        case EGL_CONTEXT_LOST: return "EGL_CONTEXT_LOST";
+        default: return "unknown EGL error";
+    }
+}
+
 static void fb_destroy_callback(struct gbm_bo *bo, void *data) {
     fb_userdata_t *fb = data;
     if (fb->fb_id) {
@@ -160,13 +181,13 @@ int drm_display_init(drm_display_t *d, const char *device_path) {
         d->egl_display = eglGetDisplay((EGLNativeDisplayType)d->gbm_dev);
     }
     if (d->egl_display == EGL_NO_DISPLAY) {
-        fprintf(stderr, "failed to get EGL display\n");
+        fprintf(stderr, "failed to get EGL display: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
 
     EGLint major, minor;
     if (!eglInitialize(d->egl_display, &major, &minor)) {
-        fprintf(stderr, "eglInitialize failed\n");
+        fprintf(stderr, "eglInitialize failed: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
 
@@ -181,29 +202,48 @@ int drm_display_init(drm_display_t *d, const char *device_path) {
         EGL_ALPHA_SIZE, 0,
         EGL_NONE
     };
-    EGLConfig config;
     EGLint num_configs = 0;
-    if (!eglChooseConfig(d->egl_display, config_attribs, &config, 1, &num_configs) || num_configs < 1) {
-        fprintf(stderr, "eglChooseConfig failed to find a suitable config\n");
+    if (!eglChooseConfig(d->egl_display, config_attribs, NULL, 0, &num_configs) || num_configs < 1) {
+        fprintf(stderr, "eglChooseConfig failed to find a suitable config: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
+    EGLConfig *configs = malloc((size_t)num_configs * sizeof(EGLConfig));
+    if (!eglChooseConfig(d->egl_display, config_attribs, configs, num_configs, &num_configs)) {
+        fprintf(stderr, "eglChooseConfig failed to find a suitable config: %s\n", egl_error_string(eglGetError()));
+        free(configs);
+        return -1;
+    }
+
+    /* The EGLConfig's native visual format must match the GBM surface's
+     * format (GBM_FORMAT_XRGB8888) or eglCreateWindowSurface fails with
+     * EGL_BAD_MATCH -- eglChooseConfig's other attribs don't guarantee this. */
+    EGLConfig config = configs[0];
+    for (int i = 0; i < num_configs; i++) {
+        EGLint visual_id = 0;
+        eglGetConfigAttrib(d->egl_display, configs[i], EGL_NATIVE_VISUAL_ID, &visual_id);
+        if ((uint32_t)visual_id == GBM_FORMAT_XRGB8888) {
+            config = configs[i];
+            break;
+        }
+    }
+    free(configs);
 
     EGLint context_attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
     d->egl_context = eglCreateContext(d->egl_display, config, EGL_NO_CONTEXT, context_attribs);
     if (d->egl_context == EGL_NO_CONTEXT) {
-        fprintf(stderr, "eglCreateContext failed\n");
+        fprintf(stderr, "eglCreateContext failed: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
 
     d->egl_surface = eglCreateWindowSurface(d->egl_display, config,
                                              (EGLNativeWindowType)d->gbm_surf, NULL);
     if (d->egl_surface == EGL_NO_SURFACE) {
-        fprintf(stderr, "eglCreateWindowSurface failed\n");
+        fprintf(stderr, "eglCreateWindowSurface failed: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
 
     if (!eglMakeCurrent(d->egl_display, d->egl_surface, d->egl_surface, d->egl_context)) {
-        fprintf(stderr, "eglMakeCurrent failed\n");
+        fprintf(stderr, "eglMakeCurrent failed: %s\n", egl_error_string(eglGetError()));
         return -1;
     }
 

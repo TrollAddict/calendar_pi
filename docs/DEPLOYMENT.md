@@ -1,16 +1,26 @@
-# Deploying to a Raspberry Pi Zero W
+# Deploying to a Raspberry Pi 4
 
-This covers everything between "blank SD card" and "calendar running
-persistently on boot" — the parts that aren't obvious from the source or the
-main README, mostly learned the hard way getting this running on real
-ARMv6 hardware with no keyboard/monitor ever attached to the Pi.
+This covers everything between "blank SD card" and "dashboard running
+persistently on boot" — the parts that aren't obvious from the source or
+the main README, mostly learned the hard way getting this running with no
+keyboard/monitor ever attached to the Pi.
+
+This project originally targeted a Raspberry Pi Zero W, whose ARMv6 CPU
+and 2048px GPU texture limit turned out to be too constrained for the
+camera pane's snapshot resolution — see the "Known limitations" note in
+the README and `docs/REOLINK_SETUP.md`'s "Why not real video?"/
+"Performance tip" sections. Most of this doc (headless SD-card setup,
+Google/Reolink config, systemd) applies to either board equally; where
+something is Pi 4-specific or was a Zero-W-only concern, it's called out.
 
 ## 1. Flash the SD card
 
-Use Raspberry Pi Imager with **Raspberry Pi OS Lite** (32-bit). Lite is not
-just acceptable but preferred here: it boots straight to a console with no
-desktop compositor running, and this app needs to be the sole owner of the
-DRM device. A desktop session (X11/Wayland) would fight it for the display.
+Use Raspberry Pi Imager with **Raspberry Pi OS Lite** (64-bit — the Pi 4
+supports it fully, unlike the Zero W's 32-bit-only ARMv6 core). Lite is
+not just acceptable but preferred here: it boots straight to a console
+with no desktop compositor running, and this app needs to be the sole
+owner of the DRM device. A desktop session (X11/Wayland) would fight it
+for the display.
 
 If you're on a recent/experimental OS build (e.g. an early Trixie-based
 port) and the Imager's "OS Customisation" (gear icon / Ctrl+Shift+X)
@@ -132,31 +142,13 @@ vendor OUIs).
 
 ## 4. Building — do this natively, on the Pi
 
-**Cross-compiling from another machine does not currently work for this
-board and isn't worth pursuing further** — see the note in
-`cmake/toolchain-rpi.cmake` for the full story. Short version: the Pi Zero
-W's ARM1176 core is ARMv6, and Debian/Ubuntu's `crossbuild-essential-armhf`
-targets ARMv7+ (Debian dropped ARMv6 from the armhf baseline years ago). Two
-separate incompatibilities showed up:
-
-1. The cross-compiler's default `crt1.o`/`Scrt1.o` startup objects come
-   from its own bundled sysroot, not the one you point `--sysroot` at —
-   fixable with an extra `-B<sysroot>/usr/lib/arm-linux-gnueabihf` flag
-   (already in the toolchain file).
-2. GCC's own bundled `crtbeginS.o`/`crtendS.o` (injected into every binary
-   for constructor/destructor boilerplate like `register_tm_clones`) are
-   compiled Thumb-2, which the ARMv6 core can't execute at all — this one
-   has no known flag-level fix, since those object files ship pre-built
-   with the compiler package itself.
-
-Building natively sidesteps both, because there's no cross-target mismatch
-possible — the Pi's own `gcc` is built for the hardware it's running on. The
-project is small enough (7 source files) that a single ARM11 core still
-builds it in a couple of minutes.
+Building directly on the Pi avoids any cross-compile toolchain concerns
+entirely, and the Pi 4's quad-core Cortex-A72 builds this project in well
+under a minute.
 
 On the Pi:
 ```sh
-sudo apt install build-essential cmake libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev
+sudo apt install build-essential cmake libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libcurl4-openssl-dev
 ```
 Copy the source over (from your dev machine):
 ```sh
@@ -170,11 +162,23 @@ cmake --build build -j$(nproc)
 ./build/calendar_pi
 ```
 
-### Appendix: pulling a cross-compile sysroot (for reference — doesn't produce a working binary yet)
+### Appendix: the Pi Zero W cross-compile attempt (historical, doesn't apply to the Pi 4)
 
-This is the setup that got the cross-compile toolchain file as far as it
-goes, kept in case someone picks up chasing the remaining `crtbeginS.o`
-issue. On your dev machine:
+Kept for reference from when this project targeted a Pi Zero W. Short
+version of the story: the Zero W's ARM1176 core is ARMv6, and
+Debian/Ubuntu's `crossbuild-essential-armhf` targets ARMv7+ (Debian
+dropped ARMv6 from the armhf baseline years ago), which surfaced two
+separate incompatibilities — a `crt1.o`/`Scrt1.o` sysroot mismatch (fixed
+with an extra `-B` flag, in `cmake/toolchain-rpi.cmake`) and GCC's own
+bundled `crtbeginS.o`/`crtendS.o` being compiled Thumb-2, which the ARMv6
+core can't execute at all and which has no known flag-level fix. That
+second issue is specific to ARMv6 and doesn't apply to the Pi 4's ARMv8
+Cortex-A72 — but cross-compiling for the Pi 4 hasn't been attempted or
+documented in this project, since native builds are fast enough on its
+quad-core CPU that there's been no need. The setup below is what got the
+Zero W cross-compile toolchain file as far as it goes, kept in case
+someone ever picks up chasing the remaining `crtbeginS.o` issue for that
+board specifically. On your dev machine:
 ```sh
 sudo apt install crossbuild-essential-armhf
 ```
@@ -198,7 +202,40 @@ This links successfully and produces a valid armhf ELF, but it still
 crashes with `SIGILL` on the actual board — see the toolchain file's header
 comment.
 
-## 5. Running persistently on boot
+## 5. Connecting Google Calendar and Tasks
+
+The app pulls your primary Google Calendar's events and default Google
+Tasks list over the network. See `docs/GOOGLE_CALENDAR_SETUP.md` for the
+full setup: a one-time Google Cloud Console configuration, then a
+one-time authorization step run **on your dev machine**
+(`tools/authorize_gcal.py` — needs a real browser, which the Pi doesn't
+have), which produces a refresh token scoped for both APIs. Drop the
+`client_id`/`client_secret` into `~/.config/calendar_pi/client.conf` and
+that refresh token into `~/.config/calendar_pi/token` (mode `0600`) on the
+Pi — both are plain files, easiest to place via the same `rsync`/`scp`
+you're already using to deploy the source.
+
+Unlike the OS-level headless setup above, there's no on-device approval
+step to watch for here — authorization happens entirely on your dev
+machine before you ever touch the Pi. If you do run the binary before
+those two files are in place (e.g. testing the build before finishing
+Google setup), the physical display just shows each pane's own static
+"not yet authorized" message rather than live data; once both files
+exist, a restart (or the background sync threads noticing the token
+file, checked every few seconds) picks it up automatically.
+
+## 6. Connecting the Reolink camera
+
+The camera pane polls a JPEG snapshot from a Reolink camera on your local
+network — see `docs/REOLINK_SETUP.md` for the full setup. Drop
+`host`/`user`/`password` into `~/.config/calendar_pi/camera.conf` (mode
+`0600`) on the Pi, the same way as the calendar config above. This is
+independent of the Google Calendar/Tasks setup — no Google account or
+internet access involved, just LAN connectivity from the Pi to the
+camera. Without this file in place, the camera pane just shows "CAMERA
+NOT CONFIGURED" rather than failing to start.
+
+## 7. Running persistently on boot
 
 The app detects whether it has a controlling terminal. Run interactively
 over SSH and you get full navigation; run with no terminal attached (e.g.
@@ -208,9 +245,9 @@ the current date — it does not exit.
 Create `/etc/systemd/system/calendar_pi.service` on the Pi:
 ```ini
 [Unit]
-Description=Full-screen calendar display
-After=systemd-udev-settle.service multi-user.target
-Wants=systemd-udev-settle.service
+Description=Full-screen calendar/to-do/camera dashboard
+After=systemd-udev-settle.service multi-user.target network-online.target
+Wants=systemd-udev-settle.service network-online.target
 
 [Service]
 Type=simple

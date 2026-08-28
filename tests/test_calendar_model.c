@@ -62,6 +62,23 @@ int main(void) {
     if (cal_days_in_month(2000, 2) != 29) { printf("FAIL days_in_month(2000,2)\n"); ok = 0; }
     if (cal_days_in_month(1900, 2) != 28) { printf("FAIL days_in_month(1900,2)\n"); ok = 0; }
 
+    /* 2026-08-09 is a Sunday. */
+    cal_date_t sun = {2026, 8, 9};
+    cal_date_t ws;
+    cal_week_start(sun, &ws);
+    if (!(ws.year == 2026 && ws.month == 8 && ws.day == 9)) {
+        printf("FAIL week_start of a Sunday: got %d-%02d-%02d\n", ws.year, ws.month, ws.day);
+        ok = 0;
+    }
+
+    /* 2026-08-15 is a Saturday, 6 days after the same week's Sunday. */
+    cal_date_t sat = {2026, 8, 15};
+    cal_week_start(sat, &ws);
+    if (!(ws.year == 2026 && ws.month == 8 && ws.day == 9)) {
+        printf("FAIL week_start of a Saturday: got %d-%02d-%02d\n", ws.year, ws.month, ws.day);
+        ok = 0;
+    }
+
     if (ok) {
         printf("all calendar_model tests passed\n");
         return 0;
