@@ -77,7 +77,8 @@ void draw_todo(renderer_t *rnd, int region_w, int region_h,
     int list_top = margin + FONT_GLYPH_H * title_scale + 10;
     int list_bottom = h - margin - (status == GTASKS_STATE_OFFLINE ? footer_h : 0);
 
-    int row_scale = 1;
+    int row_scale = h / 260;
+    if (row_scale < 1) row_scale = 1;
     int box = FONT_GLYPH_H * row_scale;
     int row_h = box + 6;
     int max_rows = (list_bottom - list_top) / row_h;
